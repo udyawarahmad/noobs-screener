@@ -128,6 +128,16 @@ table.fin,#stPrice,.wl-p,.sd-p,.idx b{font-variant-numeric:tabular-nums}
 /* ---------- layout ---------- */
 .wrap{max-width:1220px;margin:0 auto;padding:20px 16px 64px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r-l);padding:20px 22px;margin:16px 0;box-shadow:var(--shadow)}
+/* ---- News ---- */
+.news-list{display:flex;flex-direction:column;gap:2px}
+.news-item{display:flex;gap:12px;align-items:baseline;padding:11px 2px;border-top:1px solid var(--line);text-decoration:none;color:inherit;transition:background .15s}
+.news-item:first-child{border-top:0}
+.news-item:hover{background:var(--fill);border-radius:var(--r-s)}
+.news-item .ni-body{flex:1;min-width:0}
+.news-item .ni-title{font-weight:560;line-height:1.35;overflow-wrap:anywhere}
+.news-item .ni-meta{font-size:12.5px;color:var(--muted);margin-top:3px;overflow-wrap:anywhere}
+.news-item .ni-go{color:var(--faint);font-size:13px;flex:none}
+.news-empty{padding:6px 2px;color:var(--muted)}
 .eyebrow{font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:4px}
 .card h2{margin:0 0 4px;font-size:20px;font-weight:700;letter-spacing:-.3px}
 .card h2 .tag{font-size:11px;font-weight:600;background:var(--fill);color:var(--muted);border-radius:6px;padding:3px 8px;margin-left:8px;vertical-align:middle}

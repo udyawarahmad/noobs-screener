@@ -16,7 +16,7 @@ try { var _t = PStore.getState('screenone_theme', ''); if (_t) S.theme = _t; } c
 var CO = {};   // sym -> parsed company (memory)
 var CH = {};   // yahoo symbol -> chart (memory)
 var LAST_CH = null; // chart currently shown in the hero (stock or index)
-var FIN_SECTIONS = ['pcSec', 'peerSec', 'qSec', 'pnlSec', 'bsSec', 'cfSec', 'ratSec', 'shSec', 'docSec', 'aboutSec'];
+var FIN_SECTIONS = ['pcSec', 'newsSec', 'peerSec', 'qSec', 'pnlSec', 'bsSec', 'cfSec', 'ratSec', 'shSec', 'docSec', 'aboutSec'];
 var UNI = {};  // sym -> universe entry (curated + ephemeral search/peer opens)
 UNIVERSE.forEach(function (u) { UNI[u.sym] = u; });
 var ACTIVE_SET = {};
@@ -375,6 +375,7 @@ function showSkeletons() {
   $('stPrice').textContent = '…';
   $('aboutText').innerHTML = skel(90);
   $('docsLinks').innerHTML = skel(60);
+  var nl = $('newsList'); if (nl) nl.innerHTML = skel(46) + skel(46) + skel(46);
 }
 function renderStockError(sym, e) {
   $('stSym').textContent = sym;
@@ -733,11 +734,61 @@ function renderAbout(C) {
     '<div><span>Face value</span><b>' + (C.fund.fv != null ? '₹' + inr1(C.fund.fv) : '–') + '</b></div>' +
     '<div><span>Yahoo symbol</span><b>' + esc(yOf(C.sym)) + '</b></div>';
 }
+function timeAgo(ms) {
+  if (!ms) return '';
+  var d = Date.now() - ms;
+  if (d < 0) return 'just now';
+  var m = Math.round(d / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return m + 'm ago';
+  var h = Math.round(m / 60);
+  if (h < 24) return h + 'h ago';
+  var dd = Math.round(h / 24);
+  if (dd < 30) return dd + 'd ago';
+  return new Date(ms).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+}
+function paintNews(res) {
+  var box = $('newsList');
+  if (!box) return;
+  var tag = $('newsTag');
+  if (tag) tag.textContent = res && res.source ? 'free · ' + res.source : 'free · RSS';
+  var items = (res && res.items) || [];
+  if (!items.length) {
+    box.innerHTML = '<p class="muted news-empty">No recent headlines found for this stock right now. ' +
+      'News comes from free RSS feeds (Google News, Bing News, Yahoo Finance) — try Refresh in a minute.</p>';
+    return;
+  }
+  box.innerHTML = items.map(function (n) {
+    var meta = [n.source, timeAgo(n.t)].filter(Boolean).join(' · ');
+    return '<a class="news-item" href="' + esc(n.link) + '" target="_blank" rel="noopener noreferrer" title="' + esc(n.title) + '">' +
+      '<span class="ni-body"><span class="ni-title">' + esc(n.title) + '</span>' +
+      (meta ? '<span class="ni-meta">' + esc(meta) + '</span>' : '') + '</span>' +
+      '<span class="ni-go">↗</span></a>';
+  }).join('');
+}
+/* Show cached headlines immediately, then refresh in the background. */
+function renderNews(C) {
+  var box = $('newsList');
+  if (!box || typeof loadNews !== 'function') return;
+  var cached = null;
+  try { cached = liveCacheGet('news:' + C.sym); } catch (e) { cached = null; }
+  if (cached && cached.v) paintNews(cached.v);
+  else box.innerHTML = skel(46) + skel(46) + skel(46);
+  var sym = C.sym;
+  loadNews(C).then(function (res) {
+    if (S.sym !== sym || S.mode !== 'stock') return;
+    paintNews(res);
+  }).catch(function () {
+    if (S.sym !== sym) return;
+    paintNews({ items: [], source: '' });
+  });
+}
 function renderAll(C, CHd) {
   LAST_CH = CHd;
   renderStockHead(C, CHd);
   drawPriceChart(CHd);
   renderProsCons(C);
+  renderNews(C);
   renderPeers(C);
   renderStatements(C);
   renderSH(C);

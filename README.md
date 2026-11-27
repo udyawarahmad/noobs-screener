@@ -1,9 +1,9 @@
 # Noobs Screener (desktop + web)
 
 One-page Indian stock screener — live prices/charts (Yahoo Finance, NSE), financials,
-ratios, peers, pros/cons, shareholding (screener.in, parsed live), 160-stock curated
-universe + universal search across every stock on screener.in, custom screener,
-watchlist, light/dark themes.
+ratios, peers, pros/cons, shareholding (screener.in, parsed live), **per-company news
+(free RSS, no API key)**, 160-stock curated universe + universal search across every
+stock on screener.in, custom screener, watchlist, light/dark themes.
 
 This repo runs the app **outside Perchance** in two ways:
 
@@ -100,6 +100,21 @@ Inside that folder:
 Because the cache survives restarts, only the first launch of a day fetches data;
 later launches render straight from disk. **Refresh** clears the cache only — your
 watchlist is never touched.
+
+## News (free, no API key)
+
+Each stock page has a **Latest News** card with recent headlines about that company.
+Sources are public RSS feeds, tried in order until one returns results:
+
+| Source | Feed |
+|---|---|
+| Google News | `news.google.com/rss/search?q="<company>" share` (best Indian coverage) |
+| Bing News | `www.bing.com/news/search?format=RSS` |
+| Yahoo Finance | `feeds.finance.yahoo.com/rss/2.0/headline?s=<ticker>` |
+
+Nothing to sign up for and no quota. Headlines are filtered to ones that actually
+mention the company, cached for 45 minutes (misses for 5), and clicking one opens it
+in your system browser — links never navigate the app window.
 
 ## How the data fetching works
 

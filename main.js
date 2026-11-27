@@ -3,7 +3,7 @@
    Opens the app window, proxies HTTP requests for the renderer (so screener.in /
    Yahoo work without any CORS problems on desktop), and keeps the watchlist +
    data cache on disk so they survive restarts. */
-const { app, BrowserWindow, ipcMain, net } = require('electron');
+const { app, BrowserWindow, ipcMain, net, shell } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const { createStore, copyLegacyLocalStorage } = require('./main-store');
@@ -71,6 +71,16 @@ function createWindow() {
       nodeIntegration: false
     }
   });
+  // Links (news headlines, filings, company site) open in the system browser —
+  // never inside the app window and never as a bare Electron window.
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url);
+    return { action: 'deny' };
+  });
+  win.webContents.on('will-navigate', (event, url) => {
+    if (/^https?:\/\//i.test(url)) { event.preventDefault(); shell.openExternal(url); }
+  });
+
   win.loadFile(path.join(__dirname, 'renderer/index.html'));
   // win.webContents.openDevTools(); // uncomment while debugging
 }
