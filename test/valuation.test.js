@@ -185,6 +185,16 @@ const HDFC_CHART = (function () {
   return { pts };
 })();
 
+test('column order does not matter (some sources list newest first)', () => {
+  const rev = t => ({ cols: t.cols.slice().reverse(), rows: t.rows.map(r => ({ label: r.label, vals: r.vals.slice().reverse(), nums: r.nums.slice().reverse() })) });
+  const mirrored = Object.assign({}, TCS, { pnl: rev(TCS.pnl), bs: rev(TCS.bs), rat: TCS.rat ? rev(TCS.rat) : TCS.rat });
+  near(V.valShares(mirrored).sharesCr, V.valShares(TCS).sharesCr, 1e-9, 'share count');
+  const a = V.valPerShareTimelines(TCS), b = V.valPerShareTimelines(mirrored);
+  assert.strictEqual(b.eps.length, a.eps.length, 'same EPS points');
+  near(b.eps[b.eps.length - 1].value, a.eps[a.eps.length - 1].value, 1e-9, 'latest EPS');
+  near(b.currentBvps, a.currentBvps, 1e-9, 'book value per share');
+});
+
 test('bank: book value per share reproduces the published ₹391', () => {
   const sh = V.valShares(HDFCBANK);
   near(sh.sharesCr, 1542, 0.01, 'shares');

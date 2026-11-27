@@ -44,6 +44,8 @@ function valAnnualCols(table) {
     if (t == null) continue;
     out.push({ i: i, t: t, label: table.cols[i] });
   }
+  // oldest -> newest, whatever order the source used
+  out.sort(function (a, b) { return a.t - b.t; });
   return out;
 }
 
@@ -74,13 +76,19 @@ function valNum(row, i) {
 /* Share count in crores, on the latest reported balance sheet. */
 function valShares(C) {
   var sc = valRow(C && C.bs, ['equity capital', 'share capital']);
-  var cols = valAnnualCols(C && C.bs);
   var fv = C && C.fund ? C.fund.fv : null;
-  if (!sc || !cols.length || !fv) return null;
-  // latest column, including an interim quarter if the table has one
-  var idx = (C.bs.cols || []).length - 1;
-  var capital = valNum(sc, idx);
-  if (capital == null || capital <= 0) capital = valNum(sc, cols[cols.length - 1].i);
+  if (!sc || !fv) return null;
+  // latest column with a real capital figure — works whether the source lists
+  // columns oldest-first or newest-first, and whether or not an interim quarter
+  // (e.g. "Sep 2026") is present
+  var capital = null, bestT = -Infinity;
+  (C.bs.cols || []).forEach(function (label, i) {
+    var t = valMonthEnd(label);
+    if (t == null) return;                       // TTM and other non-months
+    var v = valNum(sc, i);
+    if (v == null || v <= 0) return;
+    if (t > bestT) { bestT = t; capital = v; }
+  });
   if (capital == null || capital <= 0) return null;
   var sharesCr = capital / fv;             // ₹Cr / ₹ per share = crore shares
   if (!isFinite(sharesCr) || sharesCr <= 0) return null;
@@ -161,7 +169,7 @@ function valPriceAt(pts, t) {
 
 /* Daily valuation series: price / per-share value, using the fundamental that was
    published at that time (step function, shifted by the reporting lag). */
-function valDailySeries(chart, timeline, key) {
+function valDailySeries(chart, timeline) {
   var pts = (chart && chart.pts) || [];
   var series = timeline || [];
   if (!pts.length || !series.length) return [];
@@ -241,8 +249,8 @@ function valForCompany(C, chart) {
   var tl = valPerShareTimelines(C);
   if (!tl.shares) return null;
 
-  var peDaily = valDailySeries(chart, tl.eps, 'pe');
-  var pbDaily = valDailySeries(chart, tl.bvps, 'pb');
+  var peDaily = valDailySeries(chart, tl.eps);
+  var pbDaily = valDailySeries(chart, tl.bvps);
   var priceNow = (chart.pts && chart.pts.length) ? chart.pts[chart.pts.length - 1].c : null;
   if (priceNow == null) return null;
 
