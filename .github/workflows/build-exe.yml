@@ -48,7 +48,8 @@ jobs:
           npm run dist 2>&1 | Tee-Object -FilePath build.log
           if ($LASTEXITCODE -ne 0) {
             # Surface the failure as annotations so it is visible in the run summary.
-            Get-Content build.log -Tail 30 | ForEach-Object { Write-Host "::error::$($_)" }
+            Get-Content build.log | Select-String -Pattern '⨯|Error|error:|Cannot|failed|ENOENT' |
+              Select-Object -Last 20 | ForEach-Object { Write-Host "::error::$($_.Line)" }
             exit 1
           }
 
