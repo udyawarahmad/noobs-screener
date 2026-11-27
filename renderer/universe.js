@@ -106,7 +106,7 @@ var UNIVERSE = [
   { sym: 'PAYTM', y: 'PAYTM.NS', sec: 'Fintech', n: 'One 97 Communications (Paytm)' },
   { sym: 'SWIGGY', y: 'SWIGGY.NS', sec: 'Internet', n: 'Swiggy' },
   { sym: 'NYKAA', y: 'NYKAA.NS', sec: 'Internet', n: 'FSN E-Commerce (Nykaa)' },
-  { sym: 'MINDTREE', y: 'LTIM.NS', sec: 'IT', n: 'LTIMindtree' },
+  { sym: 'LTIM', y: 'LTIM.NS', sec: 'IT', n: 'LTIMindtree' },
   { sym: 'TECHM', y: 'TECHM.NS', sec: 'IT', n: 'Tech Mahindra' },
   { sym: 'PERSISTENT', y: 'PERSISTENT.NS', sec: 'IT', n: 'Persistent Systems' },
   { sym: 'COFORGE', y: 'COFORGE.NS', sec: 'IT', n: 'Coforge' },
@@ -165,13 +165,14 @@ var UNIVERSE = [
   { sym: 'INDUSTOWER', y: 'INDUSTOWER.NS', sec: 'Telecom', n: 'Indus Towers' },
   { sym: 'IDEA', y: 'IDEA.NS', sec: 'Telecom', n: 'Vodafone Idea' }
 ];
-var ALT_SLUG = { ETERNAL: ['ZOMATO'] };
+var ALT_SLUG = { ETERNAL: ['ZOMATO'], LTIM: ['MINDTREE'] };
 /* Yahoo fallbacks if a primary symbol is delisted/renamed, e.g. corporate actions. */
 var ALT_Y = {};
 var SECTORS_SRC = UNIVERSE.filter(function (u) { return !u.skip; });
 var ACTIVE_UNIVERSE = SECTORS_SRC;
 var SECTORS = Array.from(new Set(ACTIVE_UNIVERSE.map(function (u) { return u.sec; }))).sort();
 function yOf(sym) {
-  for (var i = 0; i < UNIVERSE.length; i++) if (UNIVERSE[i].sym === sym) return UNIVERSE[i].y;
+  for (var i = 0; i < UNIVERSE.length; i++) if (UNIVERSE[i].sym === sym && UNIVERSE[i].y) return UNIVERSE[i].y;
+  if (/^\d+$/.test(String(sym || ''))) return sym + '.BO';
   return sym + '.NS';
 }

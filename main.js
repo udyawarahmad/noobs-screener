@@ -2,7 +2,7 @@
 /* Noobs Screener — Electron main process.
    Opens the app window and proxies HTTP requests for the renderer,
    so screener.in / Yahoo work without any CORS problems on desktop. */
-const { app, BrowserWindow, ipcMain, net } = require('electron');
+const { app, BrowserWindow, ipcMain, net, shell } = require('electron');
 const path = require('path');
 
 function createWindow() {
@@ -19,6 +19,12 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false
     }
+  });
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(String(url))) {
+      shell.openExternal(String(url)).catch(() => {});
+    }
+    return { action: 'deny' };
   });
   win.loadFile(path.join(__dirname, 'renderer/index.html'));
   // win.webContents.openDevTools(); // uncomment while debugging

@@ -28,19 +28,12 @@ function liveCacheSet(k, v) {
 }
 function liveCacheClear() {
   try {
-    Object.keys(localStorage).filter(function (x) { return x.indexOf('screenone') === 0; })
-      .forEach(function (x) { localStorage.removeItem(x); });
+    Object.keys(localStorage).filter(function (x) {
+      return x.indexOf('screenone3:') === 0 || x.indexOf('screenone2:') === 0 || x.indexOf('screenone:') === 0;
+    }).forEach(function (x) { localStorage.removeItem(x); });
   } catch (e) {}
 }
 
-function _getSF() {
-  try { if (typeof superFetch === 'function') return superFetch; } catch (e) {}
-  try { if (typeof root !== 'undefined' && root && root.superFetch) return function (u, o) { return root.superFetch(u, o); }; } catch (e) {}
-  return null;
-}
-
-/* GET text: direct fetch first, then the CORS-free proxy plugin. 30s timeouts so
-   one slow host can never stall the whole page. */
 function _withTimeout(ms) {
   try {
     var c = new AbortController();
@@ -48,41 +41,46 @@ function _withTimeout(ms) {
     return { signal: c.signal, done: function () { clearTimeout(t); } };
   } catch (e) { return null; }
 }
-async function httpText(url, preferProxy) {
-  if (!preferProxy) {
-    var w1 = _withTimeout(30000);
-    try {
-      var r = await fetch(url, { credentials: 'omit', signal: w1 && w1.signal });
-      if (w1) w1.done();
-      if (r.ok) return await r.text();
-    } catch (e) { if (w1) w1.done(); }
-  }
-  var sf = _getSF();
-  if (!sf) throw new Error('network blocked');
-  var w2 = _withTimeout(30000);
+
+/* ---------- fetch layer ----------
+   Order: Electron main-process proxy (no CORS) -> direct fetch or CORS proxy
+   depending on `preferProxy` -> fallback to the other. */
+async function _fetchDirectText(url) {
+  var w = _withTimeout(30000);
   try {
-    var r2 = await sf(url, w2 ? { signal: w2.signal } : undefined);
-    if (w2) w2.done();
-    if (r2.ok === false || (r2.status && (r2.status < 200 || r2.status >= 300))) throw new Error('HTTP ' + r2.status);
-    return await r2.text();
-  } catch (e) { if (w2) w2.done(); throw e; }
+    var r = await fetch(url, { credentials: 'omit', signal: w && w.signal });
+    if (w) w.done();
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return await r.text();
+  } catch (e) { if (w) w.done(); throw e; }
+}
+async function _fetchProxyText(url) {
+  var w = _withTimeout(30000);
+  try {
+    var r = await fetch('https://corsproxy.io/?url=' + encodeURIComponent(url), { signal: w && w.signal });
+    if (w) w.done();
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return await r.text();
+  } catch (e) { if (w) w.done(); throw e; }
+}
+async function httpText(url, preferProxy) {
+  if (typeof window !== 'undefined' && window.electronFetch) {
+    var er = null;
+    try { er = await window.electronFetch(url); } catch (e) { er = null; }
+    if (er) {
+      if (er.ok !== false && typeof er.body === 'string') return er.body;
+      if (er.status >= 400) throw new Error('HTTP ' + er.status);
+    }
+  }
+  var first = preferProxy ? _fetchProxyText : _fetchDirectText;
+  var second = preferProxy ? _fetchDirectText : _fetchProxyText;
+  try { return await first(url); } catch (e1) {}
+  try { return await second(url); } catch (e2) {}
+  throw new Error('network blocked');
 }
 async function httpJSON(url) {
-  var w1 = _withTimeout(30000);
-  try {
-    var r = await fetch(url, { credentials: 'omit', signal: w1 && w1.signal });
-    if (w1) w1.done();
-    if (r.ok) return await r.json();
-  } catch (e) { if (w1) w1.done(); }
-  var sf = _getSF();
-  if (!sf) throw new Error('network blocked');
-  var w2 = _withTimeout(30000);
-  try {
-    var r2 = await sf(url, w2 ? { signal: w2.signal } : undefined);
-    if (w2) w2.done();
-    if (r2.ok === false || (r2.status && (r2.status < 200 || r2.status >= 300))) throw new Error('HTTP ' + r2.status);
-    return await r2.json();
-  } catch (e) { if (w2) w2.done(); throw e; }
+  var txt = await httpText(url, false);
+  return JSON.parse(txt);
 }
 
 /* ---------- Yahoo Finance price history ---------- */
@@ -96,36 +94,49 @@ async function loadChart(ySym) {
   var ind = res.indicators || {};
   var q = (ind.quote && ind.quote[0]) || {};
   var adj = (ind.adjclose && ind.adjclose[0] && ind.adjclose[0].adjclose) || q.close || [];
-  var opens = q.open || [], highs = q.high || [], lows = q.low || [], vols = q.volume || [];
-  var kAdj = [];
-  for (var ka = 0; ka < ts.length; ka++) {
-    var qc = (q.close && q.close[ka] != null) ? q.close[ka] : null;
-    kAdj.push(qc ? adj[ka] / qc : 1);
-  }
+  var opens = q.open || [], highs = q.high || [], lows = q.low || [], vols = q.volume || [], closes = q.close || [];
   var pts = [];
   for (var i = 0; i < ts.length; i++) {
-    if (ts[i] && adj[i] != null) pts.push({
-      t: ts[i] * 1000, c: adj[i],
-      o: opens[i] != null ? opens[i] * kAdj[i] : null,
-      h: highs[i] != null ? highs[i] * kAdj[i] : null,
-      l: lows[i] != null ? lows[i] * kAdj[i] : null,
+    var rawC = closes[i] != null ? closes[i] : null;
+    var cVal = adj[i] != null ? adj[i] : rawC;
+    if (!ts[i] || cVal == null) continue;
+    var kAdj = (rawC && adj[i] != null) ? (adj[i] / rawC) : 1;
+    pts.push({
+      t: ts[i] * 1000, c: cVal, rc: rawC != null ? rawC : cVal,
+      o: opens[i] != null ? opens[i] * kAdj : null,
+      h: highs[i] != null ? highs[i] * kAdj : null,
+      l: lows[i] != null ? lows[i] * kAdj : null,
       v: vols[i] || 0
     });
   }
   if (!pts.length) throw new Error('empty price history for ' + ySym);
   var m = res.meta || {};
   var last = pts[pts.length - 1], prev = pts.length > 1 ? pts[pts.length - 2] : last;
-  var back = pts.length > 253 ? pts[pts.length - 253].c : pts[0].c;
+  var prevClose = m.regularMarketPreviousClose != null ? m.regularMarketPreviousClose : (prev.rc != null ? prev.rc : prev.c);
+  var ret1y = null;
+  var spanDays = (last.t - pts[0].t) / 86400000;
+  if (spanDays >= 330) {
+    var targetT = last.t - 365 * 86400000;
+    var backPt = pts[0], bestDiff = Math.abs(pts[0].t - targetT);
+    for (var bi = 1; bi < pts.length - 1; bi++) {
+      var diff = Math.abs(pts[bi].t - targetT);
+      if (diff < bestDiff) { bestDiff = diff; backPt = pts[bi]; }
+    }
+    if (backPt && backPt.c > 0) ret1y = (last.c / backPt.c - 1) * 100;
+  }
+  var dayChg = m.regularMarketChangePercent != null
+    ? m.regularMarketChangePercent
+    : (prevClose ? ((m.regularMarketPrice != null ? m.regularMarketPrice : last.rc) / prevClose - 1) * 100 : null);
   var out = {
-    price: m.regularMarketPrice != null ? m.regularMarketPrice : last.c,
-    dayChg: m.regularMarketChangePercent != null ? m.regularMarketChangePercent : (last.c / prev.c - 1) * 100,
+    price: m.regularMarketPrice != null ? m.regularMarketPrice : last.rc,
+    dayChg: dayChg,
     dayHigh: m.regularMarketDayHigh != null ? m.regularMarketDayHigh : last.h,
     dayLow: m.regularMarketDayLow != null ? m.regularMarketDayLow : last.l,
-    prevClose: prev.c,
+    prevClose: prevClose,
     hi52: m.fiftyTwoWeekHigh, lo52: m.fiftyTwoWeekLow,
     vol: m.regularMarketVolume != null ? m.regularMarketVolume : last.v,
     name: m.longName || m.shortName || ySym,
-    ret1y: (last.c / back - 1) * 100, pts: pts,
+    ret1y: ret1y, pts: pts,
     ccy: m.currency || 'INR'
   };
   liveCacheSet(key, out);
@@ -220,9 +231,15 @@ function lastN(row, n) {
   var a = row.nums.filter(function (v) { return v != null; });
   return a.slice(-n);
 }
-function cagr3(row) {
-  var a = lastN(row, 4);
-  if (a.length < 4 || !a[0]) return null;
+function cagr3(row, cols) {
+  if (!row) return null;
+  var a = [];
+  for (var i = 0; i < row.nums.length; i++) {
+    if (cols && cols[i] && /^ttm$/i.test(String(cols[i]).trim())) continue;
+    if (row.nums[i] != null) a.push(row.nums[i]);
+  }
+  a = a.slice(-4);
+  if (a.length < 4 || a[0] <= 0 || a[3] <= 0) return null;
   return (Math.pow(a[3] / a[0], 1 / 3) - 1) * 100;
 }
 
@@ -289,18 +306,23 @@ function parseCompany(html, sym) {
   if (pt) {
     // header row lives in tbody (th cells, no company link)
     var allRows = pt.querySelectorAll('tbody tr');
+    var headDrop = 2;
     for (var hi = 0; hi < allRows.length; hi++) {
-      if (!allRows[hi].querySelector('a[href*="/company/"]') && /Company/.test(allRows[hi].textContent)) {
+      if (!allRows[hi].querySelector('a[href*="/company/"]') && /Company|Name/i.test(allRows[hi].textContent)) {
         var ths = allRows[hi].querySelectorAll('th');
         var all = Array.prototype.map.call(ths, function (th) { return th.textContent.replace(/\s+/g, ' ').trim(); });
-        metricHeads = all.slice(2); // drop checkbox + Company
+        var nameIx = all.findIndex(function (h) { return /^(company|name)$/i.test(h); });
+        headDrop = nameIx >= 0 ? nameIx + 1 : Math.min(2, all.length);
+        metricHeads = all.slice(headDrop);
         break;
       }
     }
     if (!metricHeads.length) {
-      metricHeads = Array.prototype.map.call(pt.querySelectorAll('thead th'), function (th) {
+      var thAll = Array.prototype.map.call(pt.querySelectorAll('thead th'), function (th) {
         return th.textContent.replace(/\s+/g, ' ').trim();
-      }).filter(Boolean);
+      });
+      var nIx = thAll.findIndex(function (h) { return /^(company|name)$/i.test(h); });
+      metricHeads = (nIx >= 0 ? thAll.slice(nIx + 1) : thAll).filter(Boolean);
     }
     Array.prototype.forEach.call(allRows, function (tr) {
       var a = tr.querySelector('a[href*="/company/"]');
@@ -309,8 +331,8 @@ function parseCompany(html, sym) {
       var psym = parts.length >= 2 ? parts[1].toUpperCase() : null;
       var nm = a.textContent.replace(/\s+/g, ' ').trim();
       var cells = Array.prototype.map.call(tr.querySelectorAll('td'), function (td) { return td.textContent.replace(/\s+/g, ' ').trim(); });
-      // cells[0] = serial, cells[1] = company name cell; metric values follow
-      peers.push({ sym: psym, name: nm, vals: cells.slice(2) });
+      var cellDrop = cells.length > metricHeads.length ? (cells.length - metricHeads.length) : 2;
+      peers.push({ sym: psym, name: nm, vals: cells.slice(cellDrop) });
     });
   }
 
@@ -346,12 +368,25 @@ function parseCompany(html, sym) {
   var npRow = findRow(pnl, ['net profit']);
   var opmRow = findRow(pnl, ['opm %']);
   var borRow = findRow(bs, ['borrowings']);
-  var scRow = findRow(bs, ['share capital']);
+  var scRow = findRow(bs, ['share capital', 'equity capital']);
   var resRow = findRow(bs, ['reserves']);
-  var eq = null;
-  var scL = scRow ? lastN(scRow, 1)[0] : null, rsL = resRow ? lastN(resRow, 1)[0] : null;
-  if (scL != null && rsL != null) eq = scL + rsL;
-  var borL = borRow ? lastN(borRow, 1)[0] : null;
+  var eq = null, borL = null;
+  if (borRow && scRow && resRow) {
+    var len = Math.min(borRow.nums.length, scRow.nums.length, resRow.nums.length);
+    for (var bi = len - 1; bi >= 0; bi--) {
+      if (borRow.nums[bi] != null && scRow.nums[bi] != null && resRow.nums[bi] != null) {
+        borL = borRow.nums[bi];
+        eq = scRow.nums[bi] + resRow.nums[bi];
+        break;
+      }
+    }
+  }
+  if (eq == null) {
+    var scL = scRow ? lastN(scRow, 1)[0] : null, rsL = resRow ? lastN(resRow, 1)[0] : null;
+    if (scL != null && rsL != null) eq = scL + rsL;
+    borL = borRow ? lastN(borRow, 1)[0] : null;
+  }
+  var negEq = (eq != null && eq <= 0);
 
   var fund = {
     mcap: toNum((ratios['Market Cap'] || '').replace(/Cr\.?/, '')),
@@ -363,10 +398,11 @@ function parseCompany(html, sym) {
     fv: toNum(ratios['Face Value']),
     price: price,
     chg: chg,
-    gs: cagr3(revRow),
-    gp: cagr3(npRow),
+    gs: cagr3(revRow, pnl && pnl.cols),
+    gp: cagr3(npRow, pnl && pnl.cols),
     opm: opmRow ? lastN(opmRow, 1)[0] : null,
-    de: (borL != null && eq) ? borL / eq : null
+    de: (borL != null && eq != null && eq > 0) ? borL / eq : null,
+    negEq: negEq
   };
 
   return {
@@ -387,7 +423,7 @@ async function loadCompany(sym) {
   for (var si = 0; si < slugs.length; si++) {
     for (var fi = 0; fi < suffixes.length; fi++) {
       try {
-        var url = 'https://www.screener.in/company/' + slugs[si] + suffixes[fi];
+        var url = 'https://www.screener.in/company/' + encodeURIComponent(slugs[si]) + suffixes[fi];
         var html = await httpText(url, true);
         if (!html || html.indexOf('top-ratios') < 0) continue;
         var parsed = parseCompany(html, sym);
@@ -418,45 +454,3 @@ async function mapLimit(items, limit, fn, onEach) {
   return out;
 }
 function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
-
-/* ---------- standalone fetch layer (GitHub/Electron build) ----------
-   Order: Electron main-process proxy (no CORS) -> direct fetch (Yahoo
-   allows it) -> public CORS-proxy fallback (plain static hosting). */
-async function httpText(url, preferProxy) {
-  try { if (typeof window !== "undefined" && window.electronFetch) {
-    var er = await window.electronFetch(url);
-    if (er && er.ok !== false && typeof er.body === "string") return er.body;
-  } } catch (e) {}
-  var w1 = _withTimeout(30000);
-  try {
-    var r = await fetch(url, { credentials: "omit", signal: w1 && w1.signal });
-    if (w1) w1.done();
-    if (r.ok) return await r.text();
-  } catch (e) { if (w1) w1.done(); }
-  var w2 = _withTimeout(30000);
-  try {
-    var r2 = await fetch("https://corsproxy.io/?url=" + encodeURIComponent(url), { signal: w2 && w2.signal });
-    if (w2) w2.done();
-    if (r2.ok) return await r2.text();
-  } catch (e) { if (w2) w2.done(); }
-  throw new Error("network blocked");
-}
-async function httpJSON(url) {
-  try { if (typeof window !== "undefined" && window.electronFetch) {
-    var er = await window.electronFetch(url);
-    if (er && er.ok !== false && typeof er.body === "string") return JSON.parse(er.body);
-  } } catch (e) {}
-  var w1 = _withTimeout(30000);
-  try {
-    var r = await fetch(url, { credentials: "omit", signal: w1 && w1.signal });
-    if (w1) w1.done();
-    if (r.ok) return await r.json();
-  } catch (e) { if (w1) w1.done(); }
-  var w2 = _withTimeout(30000);
-  try {
-    var r2 = await fetch("https://corsproxy.io/?url=" + encodeURIComponent(url), { signal: w2 && w2.signal });
-    if (w2) w2.done();
-    if (r2.ok) return await r2.json();
-  } catch (e) { if (w2) w2.done(); }
-  throw new Error("network blocked");
-}

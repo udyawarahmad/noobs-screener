@@ -4,7 +4,7 @@
 
 var S = {
   sym: 'RELIANCE', range: '1Y', finMode: 'sales', theme: 'light', wl: [],
-  mode: 'stock', index: null,  scr: { q: '', sector: 'ALL', mcapMin: 0, peMax: 1000, roeMin: -100, roceMin: -100, dyMin: 0, deMax: 99, gsMin: -100, gpMin: -100, opmMin: 0, sort: 'mcap', dir: -1, page: 0, onlyWL: false }
+  mode: 'stock', index: null,  scr: { q: '', sector: 'ALL', mcapMin: null, peMax: null, roeMin: null, roceMin: null, dyMin: null, deMax: null, gsMin: null, gpMin: null, opmMin: null, sort: 'mcap', dir: -1, page: 0, onlyWL: false }
 };
 try { S.wl = JSON.parse(localStorage.getItem('screenone_wl') || '[]'); } catch (e) { S.wl = []; }
 try { var _t = localStorage.getItem('screenone_theme'); if (_t) S.theme = _t; } catch (e) {}
@@ -62,7 +62,7 @@ function chartOf(sym) { return cachedChartSym(sym); }
 /* ---------------- header / market indices ---------------- */
 function renderIndices() {
   var items = [
-    ['NIFTY 50', '^NSEI'], ['SENSEX', '^BSESN'], ['NIFTY BANK', '^NSEBANK'], ['USD / Inr', 'INR=X'], ['Gold', 'GC=F']
+    ['NIFTY 50', '^NSEI'], ['SENSEX', '^BSESN'], ['NIFTY BANK', '^NSEBANK'], ['USD / INR', 'INR=X'], ['Gold', 'GC=F']
   ];
   $('indicesStrip').innerHTML = items.map(function (x) {
     return '<div class="idx" data-y="' + x[1] + '"><span class="idx-n">' + x[0] + '</span><b>…</b><span class="muted">live</span></div>';
@@ -73,9 +73,11 @@ function renderIndices() {
     loadChart(x[1]).then(function (ch) {
       var el = document.querySelector('.idx[data-y="' + x[1] + '"]');
       if (!el || !ch || !ch.pts.length) return;
-      var l = ch.pts[ch.pts.length - 1].c, p = ch.pts.length > 1 ? ch.pts[ch.pts.length - 2].c : l;
-      var c = (l / p - 1) * 100;
-      el.innerHTML = '<span class="idx-n">' + x[0] + '</span><b>' + inr1(l) + '</b><span class="' + numCls(c) + '">' + pct1(c) + '</span>';
+      var l = ch.price != null ? ch.price : ch.pts[ch.pts.length - 1].c;
+      var p = ch.pts.length > 1 ? ch.pts[ch.pts.length - 2].c : l;
+      var c = ch.dayChg != null ? ch.dayChg : (p ? (l / p - 1) * 100 : null);
+      var pxStr = ch.ccy === 'USD' ? money(l, 'USD') : inr1(l);
+      el.innerHTML = '<span class="idx-n">' + x[0] + '</span><b>' + pxStr + '</b><span class="' + numCls(c) + '">' + pct1(c) + '</span>';
     }).catch(function () { /* leave placeholder */ });
   });
 }
@@ -134,15 +136,23 @@ function renderIndex(CHd, label, ySym) {
   $('stSector').textContent = 'Market index · Yahoo Finance';
   $('stPrice').textContent = money(CHd.price, ccy);
   var chgEl = $('stChg');
-  chgEl.textContent = (CHd.dayChg >= 0 ? '▲ +' : '▼ ') + CHd.dayChg.toFixed(2) + '% today';
-  chgEl.className = 'chg ' + numCls(CHd.dayChg);
+  if (CHd.dayChg != null) {
+    chgEl.textContent = (CHd.dayChg >= 0 ? '▲ +' : '▼ ') + CHd.dayChg.toFixed(2) + '% today';
+    chgEl.className = 'chg ' + numCls(CHd.dayChg);
+  } else { chgEl.textContent = '–'; chgEl.className = 'chg'; }
   var rEl = $('stRange');
-  rEl.textContent = '52W Low ' + money(CHd.lo52, ccy) + ' · 52W High ' + money(CHd.hi52, ccy) + ' · 1Y ' + pct1(CHd.ret1y);
-  rEl.className = numCls(CHd.ret1y);
-  var pos = (CHd.price - CHd.lo52) / (CHd.hi52 - CHd.lo52) * 100;
-  pos = Math.min(100, Math.max(0, pos));
-  $('w52wrap').innerHTML = '<div class="w52"><div class="w52-track"><div class="w52-mark" style="left:' + pos.toFixed(1) + '%"></div></div>' +
-    '<div class="w52-lab"><span>Low ' + money(CHd.lo52, ccy) + '</span><span>High ' + money(CHd.hi52, ccy) + '</span></div></div>';
+  var rParts = [];
+  if (CHd.lo52 != null && CHd.hi52 != null) rParts.push('52W Low ' + money(CHd.lo52, ccy) + ' · 52W High ' + money(CHd.hi52, ccy));
+  if (CHd.ret1y != null) rParts.push('1Y ' + pct1(CHd.ret1y));
+  rEl.textContent = rParts.join(' · ');
+  rEl.className = CHd.ret1y != null ? numCls(CHd.ret1y) : '';
+  var w52 = '';
+  if (CHd.lo52 != null && CHd.hi52 != null && CHd.hi52 > CHd.lo52 && CHd.price != null) {
+    var pos = Math.min(100, Math.max(0, (CHd.price - CHd.lo52) / (CHd.hi52 - CHd.lo52) * 100));
+    w52 = '<div class="w52"><div class="w52-track"><div class="w52-fill" style="width:' + pos.toFixed(1) + '%"></div><div class="w52-mark" style="left:' + pos.toFixed(1) + '%"></div></div>' +
+      '<div class="w52-lab"><span>Low ' + money(CHd.lo52, ccy) + '</span><span>High ' + money(CHd.hi52, ccy) + '</span></div></div>';
+  }
+  $('w52wrap').innerHTML = w52;
   var lp = CHd.pts[CHd.pts.length - 1];
   var ds = [['Open', money(lp.o, ccy)],
     ['Day High', money(CHd.dayHigh, ccy)],
@@ -171,8 +181,10 @@ function renderSearchDrop(q) {
   var box = $('searchDrop');
   if (!q || !q.trim()) { box.hidden = true; box.innerHTML = ''; return; }
   var hits = ACTIVE_UNIVERSE.filter(function (u) { return matches(q, u.sym); }).slice(0, 8);
-  if (!hits.length) { box.hidden = false; box.innerHTML = '<div class="sd-empty">Searching…</div>'; }
-  else {
+  if (!hits.length) {
+    box.hidden = false;
+    box.innerHTML = '<div class="sd-empty">' + (q.trim().length < 2 ? 'Type at least 2 characters to search all stocks' : 'Searching…') + '</div>';
+  } else {
     box.hidden = false;
     box.innerHTML = hits.map(function (u) {
       var hit = cachedChartSym(u.sym);
@@ -230,8 +242,11 @@ function renderSearchDrop(q) {
 /* ---------------- stock detail ---------------- */
 function metricCards(C, CH) {
   var f = C.fund, price = CH ? CH.price : f.price;
-  var pe = f.pe, pb = (price != null && f.bv) ? price / f.bv : null;
+  var pb = (price != null && f.bv != null && f.bv > 0) ? price / f.bv : null;
   function cls(v) { return v != null ? ' class="' + numCls(v) + '"' : ''; }
+  var deTxt = f.de != null ? inr2(f.de) : (f.negEq ? 'Neg. Eq.' : '–');
+  var deCls = f.de != null ? (f.de > 1 ? ' class="neg"' : ' class="pos"') : (f.negEq ? ' class="neg"' : '');
+  var range52 = (CH && CH.lo52 != null && CH.hi52 != null) ? '₹' + inr0(CH.lo52) + '–' + inr0(CH.hi52) : (C.ratios && C.ratios['High / Low'] ? C.ratios['High / Low'] : '–');
   var cards = [
     ['Market Cap', f.mcap != null ? '₹ ' + inr0(f.mcap) + ' Cr' : '–', ''],
     ['P/E', f.pe != null ? inr1(f.pe) + 'x' : '–', ''],
@@ -239,12 +254,12 @@ function metricCards(C, CH) {
     ['ROE', f.roe != null ? inr1(f.roe) + '%' : '–', cls(f.roe)],
     ['ROCE', f.roce != null ? inr1(f.roce) + '%' : '–', cls(f.roce)],
     ['Div. Yield', f.dy != null ? inr1(f.dy) + '%' : '–', ''],
-    ['D/E', f.de != null ? inr2(f.de) : '–', f.de != null ? (f.de > 1 ? ' class="neg"' : ' class="pos"') : ''],
+    ['D/E', deTxt, deCls],
     ['Face Value', f.fv != null ? '₹' + inr1(f.fv) : '–', ''],
     ['Sales Gr (3Y)', f.gs != null ? pct1(f.gs) : '–', cls(f.gs)],
     ['Profit Gr (3Y)', f.gp != null ? pct1(f.gp) : '–', cls(f.gp)],
     ['OPM (latest)', f.opm != null ? inr1(f.opm) + '%' : '–', cls(f.opm)],
-    ['52W Range', (CH && CH.lo52 != null) ? '₹' + inr0(CH.lo52) + '–' + inr0(CH.hi52) : '–', '']
+    ['52W Range', range52, '']
   ];
   return cards.map(function (c) { return '<div class="mcard"><span>' + c[0] + '</span><b' + c[2] + '>' + c[1] + '</b></div>'; }).join('');
 }
@@ -260,10 +275,10 @@ function renderStockHead(C, CH) {
     chgEl.className = 'chg ' + numCls(chg);
   } else { chgEl.textContent = '–'; chgEl.className = 'chg'; }
   var rEl = $('stRange');
-  if (CH && CH.lo52 != null) {
-    rEl.textContent = '52W Low ₹' + inr0(CH.lo52) + ' · 52W High ₹' + inr0(CH.hi52) + ' · 1Y ' + pct1(CH.ret1y);
-    rEl.className = numCls(CH.ret1y);
-  } else { rEl.textContent = ''; }
+  if (CH && CH.lo52 != null && CH.hi52 != null) {
+    rEl.textContent = '52W Low ₹' + inr0(CH.lo52) + ' · 52W High ₹' + inr0(CH.hi52) + (CH.ret1y != null ? ' · 1Y ' + pct1(CH.ret1y) : '');
+    rEl.className = CH.ret1y != null ? numCls(CH.ret1y) : '';
+  } else { rEl.textContent = ''; rEl.className = ''; }
   $('metricsGrid').innerHTML = metricCards(C, CH);
   var star = $('starBtn'), on = S.wl.indexOf(C.sym) >= 0;
   star.textContent = on ? '★ Watching' : '☆ Watchlist';
@@ -335,13 +350,13 @@ function selectStock(sym) {
   loadAndRender(sym);
 }
 async function loadAndRender(sym) {
-  if (S.sym !== sym) return;
+  if (S.mode !== 'stock' || S.sym !== sym) return;
   try {
     var C = await ensureCompany(sym);
-    if (S.sym !== sym) return;
+    if (S.mode !== 'stock' || S.sym !== sym) return;
     var CH = null;
     try { CH = await ensureChart(sym); } catch (e) { CH = null; }
-    if (S.sym !== sym) return;
+    if (S.mode !== 'stock' || S.sym !== sym) return;
     CO[sym] = C;
     // adopt screener's sector for dynamic entries; grow the sector list for everyone
     if (C.sector) {
@@ -350,7 +365,7 @@ async function loadAndRender(sym) {
     }
     renderAll(C, CH);
   } catch (e) {
-    if (S.sym !== sym) return;
+    if (S.mode !== 'stock' || S.sym !== sym) return;
     renderStockError(sym, e);
   }
 }
@@ -372,8 +387,12 @@ function renderStockError(sym, e) {
   $('stPrice').textContent = '–';
   var msg = '<div class="errbox"><b>Could not load live data for ' + esc(sym) + '.</b><br><span class="muted">' +
     esc((e && e.message) || 'network error') + ' — check your connection and retry.</span><br>' +
-    '<button class="btn sm" onclick="selectStock(\'' + sym + '\')">Retry</button></div>';
-  ['qTable', 'pnlTable', 'bsTable', 'cfTable', 'ratTable', 'shTable', 'peersTable'].forEach(function (id) { $(id).innerHTML = msg; });
+    '<button class="btn sm retryBtn">Retry</button></div>';
+  ['qTable', 'pnlTable', 'bsTable', 'cfTable', 'ratTable', 'shTable', 'peersTable'].forEach(function (id) {
+    $(id).innerHTML = msg;
+    var btn = $(id).querySelector('.retryBtn');
+    if (btn) btn.addEventListener('click', function () { selectStock(sym); });
+  });
   drawEmpty($('priceChart'), 'No chart data');
 }
 window.selectStock = selectStock;
@@ -444,12 +463,15 @@ function drawPriceChart(CH) {
     ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); ctx.stroke();
     ctx.fillText(axFmt(v, ccy), W - padR + 5, y + 3);
   }
+  var seenTicks = {};
   for (var t = 0; t <= 4; t++) {
     var ix = Math.round((data.length - 1) * t / 4);
+    if (seenTicks[ix]) continue;
+    seenTicks[ix] = true;
     ctx.fillText(dLabel(data[ix].t), X(ix) - 14, H - 6);
   }
   // volume bars
-  var bw = Math.max(1, (W - padL - padR) / data.length * 0.7);
+  var bw = Math.min(24, Math.max(1, (W - padL - padR) / Math.max(data.length, 1) * 0.7));
   ctx.fillStyle = 'rgba(120,140,170,.45)';
   for (var vi = 0; vi < data.length; vi++) {
     var vh = (H - padB) - Yv(data[vi].v || 0);
@@ -493,13 +515,18 @@ function drawPriceChart(CH) {
 function bindChartHover() {
   var c = $('priceChart'), tip = $('chartTip'), hideT = null;
   function showTipAt(clientX) {
-    var g = c._geom; if (!g) return;
+    var g = c._geom; if (!g || !g.data.length) return;
     var r = c.getBoundingClientRect(), mx = clientX - r.left;
-    var i = Math.round((mx - 8) / (r.width - 8 - 56) * (g.data.length - 1));
+    var spanW = Math.max(1, r.width - 8 - 56);
+    var i = Math.round((mx - 8) / spanW * (g.data.length - 1));
     i = Math.max(0, Math.min(g.data.length - 1, i));
     tip.hidden = false;
-    tip.style.left = (g.X(i) + 10) + 'px';
-    tip.style.top = (g.Y(g.data[i].c) - 10) + 'px';
+    var x = g.X(i), y = g.Y(g.data[i].c);
+    var tx = x > r.width * 0.65 ? '-95%' : '-10%';
+    var ty = y < 56 ? '18%' : '-110%';
+    tip.style.left = Math.max(4, Math.min(r.width - 4, x + (x > r.width * 0.65 ? -8 : 10))) + 'px';
+    tip.style.top = (y < 56 ? y + 10 : y - 10) + 'px';
+    tip.style.transform = 'translate(' + tx + ',' + ty + ')';
     var d = new Date(g.data[i].t);
     tip.innerHTML = '<b>' + money(g.data[i].c, (LAST_CH && LAST_CH.ccy) || 'INR') + '</b><span>' + d.getDate() + ' ' + MON[d.getMonth()] + ' ' + d.getFullYear() + '</span>';
   }
@@ -533,13 +560,22 @@ function finTableHTML(T, opts) {
   T.rows.forEach(function (r) {
     h += '<tr><td class="sticky">' + esc(r.label) + '</td>';
     for (var i = 0; i < cols.length; i++) {
-      var raw = r.vals[off + i], nv = r.nums[off + i];
+      var colIdx = off + i;
+      var raw = r.vals[colIdx], nv = r.nums[colIdx];
       var sub = null, cls = '';
-      if (opts.growth && shouldGrow(r.label) && i > 0) {
-        var pv = r.nums[off + i - 1];
-        if (nv != null && pv) { var g = (nv / pv - 1) * 100; sub = (g >= 0 ? '+' : '') + g.toFixed(1) + '% YoY'; cls = numCls(g); }
+      if (opts.growth && shouldGrow(r.label)) {
+        var prevIdx = opts.quarterly ? (colIdx - 4) : (colIdx - 1);
+        var isTTM = !opts.quarterly && /^ttm$/i.test(String(cols[i] || '').trim());
+        if (prevIdx >= 0 && !isTTM && (opts.quarterly || i > 0)) {
+          var pv = r.nums[prevIdx];
+          if (nv != null && pv != null && pv > 0) {
+            var g = (nv / pv - 1) * 100;
+            sub = (g >= 0 ? '+' : '') + g.toFixed(1) + '% YoY';
+            cls = numCls(g);
+          }
+        }
       }
-      h += '<td class="num">' + esc(raw === '' ? '–' : raw) + (sub ? '<div class="sub ' + cls + '">' + sub + '</div>' : '') + '</td>';
+      h += '<td class="num">' + esc(raw == null || raw === '' ? '–' : raw) + (sub ? '<div class="sub ' + cls + '">' + sub + '</div>' : '') + '</td>';
     }
     h += '</tr>';
   });
@@ -557,6 +593,7 @@ function shortPeerHead(s) {
   var t = String(s || '').replace(/\s+/g, ' ').trim();
   var L = t.toLowerCase();
   var RULES = [
+    [/\bcmp\b/, 'CMP ₹'],
     [/mar(?:ket)?\s*cap/, 'M.Cap Cr'],
     [/div.*yld/, 'Div Yld%'],
     [/qtr.*profit.*var|qtr p.*var/, 'Qtr P Gr%'],
@@ -583,14 +620,12 @@ function shortPeerHead(s) {
 }
 function renderPeers(C) {
   if (!C.peers.length) { $('peersTable').innerHTML = '<p class="muted pad">No peer list published for this company.</p>'; return; }
-  var N = 7;
   var heads = (C.metricHeads || []).map(shortPeerHead);
   var h = '<table class="fin"><thead><tr><th class="sticky">Company</th>';
-  // align columns from the right: metric heads may outnumber row values
   var rows = C.peers.map(function (p) { return p; });
   var maxV = 1;
   rows.forEach(function (p) { maxV = Math.max(maxV, (p.vals || []).length); });
-  var take = Math.min(N, maxV);
+  var take = Math.max(heads.length, maxV);
   var headTake = heads.slice(-take);
   while (headTake.length < take) headTake.unshift('');
   headTake.forEach(function (x) { h += '<th class="num">' + esc(x) + '</th>'; });
@@ -609,10 +644,10 @@ function renderPeers(C) {
   });
 }
 function renderStatements(C) {
-  $('qTable').innerHTML = finTableHTML(C.quarters, { cols: 8, growth: true, first: 'Metric · ₹ Cr' }) +
-    '<p class="tbl-note">Quarterly figures in ₹ Cr. Source: screener.in (consolidated where available).</p>';
+  $('qTable').innerHTML = finTableHTML(C.quarters, { cols: 8, growth: true, quarterly: true, first: 'Metric · ₹ Cr' }) +
+    '<p class="tbl-note">Quarterly figures in ₹ Cr with YoY growth vs. same quarter last year. Source: screener.in (consolidated where available).</p>';
   var T = C.pnl, n = 8, note = '';
-  if (T && T.cols.length > n) note = 'Showing latest ' + n + ' periods (scroll table for more). ';
+  if (T && T.cols.length > n) note = 'Showing latest ' + n + ' periods. ';
   $('pnlTable').innerHTML = finTableHTML(T, { cols: n, growth: true, first: 'Metric · ₹ Cr' }) +
     '<p class="tbl-note">' + note + 'Annual figures in ₹ Cr, last column is TTM where published. Source: screener.in.</p>';
   $('bsTable').innerHTML = finTableHTML(C.bs, { cols: 8, first: 'Metric · ₹ Cr' }) + '<p class="tbl-note">Figures in ₹ Cr. Source: screener.in.</p>';
@@ -634,8 +669,15 @@ function drawFinChart(C) {
     ? (findRow(C.pnl, ['sales']) || findRow(C.pnl, ['total income']) || findRow(C.pnl, ['revenue']) || findRow(C.pnl, ['interest earned']))
     : findRow(C.pnl, ['net profit']);
   var name = row ? row.label : '';
-  var data = row ? row.nums.filter(function (v) { return v != null; }).slice(-10) : [];
-  var labels = C.pnl.cols.slice(-data.length);
+  var pairs = [];
+  if (row) {
+    for (var pi = 0; pi < row.nums.length; pi++) {
+      if (row.nums[pi] != null) pairs.push({ lbl: C.pnl.cols[pi] || '', val: row.nums[pi] });
+    }
+  }
+  pairs = pairs.slice(-10);
+  var data = pairs.map(function (p) { return p.val; });
+  var labels = pairs.map(function (p) { return p.lbl; });
   if (!data.length) { drawEmpty(c, name ? 'No numeric series for ' + name : 'No revenue series for this company'); return; }
   var box = fitCanvas(c, 220), ctx = box.ctx, W = box.w, H = box.h;
   var max = Math.max.apply(null, data.map(Math.abs)) * 1.15 || 1;
@@ -664,10 +706,10 @@ function drawFinChart(C) {
 function renderSH(C) {
   var T = C.shp;
   if (!T || !T.rows.length) { $('shTable').innerHTML = '<p class="muted pad">Shareholding data not published for this company.</p>'; drawEmpty($('shChart'), 'No data'); return; }
-  var want = ['promoter', 'fii', 'dii', 'public', 'other'];
+  var want = ['promoter', 'government', 'fii', 'dii', 'public', 'other'];
   var picked = want.map(function (w) { return T.rows.find(function (r) { return r.label.toLowerCase().indexOf(w) === 0; }); })
-    .filter(Boolean).slice(0, 5);
-  var cols = ['#0a84ff', '#ff9f0a', '#30d158', '#8e8e93', '#bf5af2'];
+    .filter(Boolean).slice(0, 6);
+  var cols = ['#0a84ff', '#32ade6', '#ff9f0a', '#30d158', '#8e8e93', '#bf5af2'];
   var h = '<table class="fin"><thead><tr><th class="sticky">Holder</th>';
   T.cols.forEach(function (c) { h += '<th class="num">' + esc(c) + '</th>'; });
   h += '</tr></thead><tbody>';
@@ -694,13 +736,15 @@ function renderSH(C) {
   }
 }
 function renderDocs(C) {
+  var isBSE = /^\d+$/.test(String(C.sym || ''));
   var links = [];
   if (C.site) links.push(['Company website', C.site]);
-  links.push(['screener.in company page', 'https://www.screener.in/company/' + C.sym + '/']);
+  links.push(['screener.in company page', 'https://www.screener.in/company/' + encodeURIComponent(C.sym) + '/']);
   if (C.nse) links.push(['NSE quote page', C.nse]);
-  else links.push(['NSE quote page', 'https://www.nseindia.com/get-quotes/equity?symbol=' + C.sym]);
+  else if (!isBSE) links.push(['NSE quote page', 'https://www.nseindia.com/get-quotes/equity?symbol=' + encodeURIComponent(C.sym)]);
   if (C.bse) links.push(['BSE quote page', C.bse]);
-  links.push(['Yahoo Finance quote', 'https://finance.yahoo.com/quote/' + yOf(C.sym)]);
+  else if (isBSE) links.push(['BSE quote page', 'https://www.bseindia.com/stock-share-price/x/x/' + encodeURIComponent(C.sym) + '/']);
+  links.push(['Yahoo Finance quote', 'https://finance.yahoo.com/quote/' + encodeURIComponent(yOf(C.sym))]);
   $('docsLinks').innerHTML = links.map(function (L) {
     return '<div class="doc-row"><div><b>' + esc(L[0]) + '</b><span>' + esc(L[1]) + '</span></div>' +
       '<a class="btn sm" href="' + esc(L[1]) + '" target="_blank" rel="noopener">Open ↗</a></div>';
@@ -715,9 +759,10 @@ function renderAbout(C) {
     var pr = C.shp.rows.find(function (r) { return r.label.toLowerCase().indexOf('promoter') === 0; });
     if (pr) { var v = pr.nums.filter(function (x) { return x != null; }); prom = v.length ? v[v.length - 1] : null; }
   }
+  var isBSE = /^\d+$/.test(String(C.sym || ''));
   $('aboutFacts').innerHTML =
-    '<div><span>Sector</span><b>' + esc(UNI[C.sym] ? UNI[C.sym].sec : '–') + '</b></div>' +
-    '<div><span>NSE symbol</span><b>' + esc(C.sym) + '</b></div>' +
+    '<div><span>Sector</span><b>' + esc((UNI[C.sym] && UNI[C.sym].sec) || C.sector || '–') + '</b></div>' +
+    '<div><span>' + (isBSE ? 'BSE code' : 'NSE symbol') + '</span><b>' + esc(C.sym) + '</b></div>' +
     '<div><span>Promoter holding</span><b>' + (prom != null ? inr1(prom) + '%' : '–') + '</b></div>' +
     '<div><span>Face value</span><b>' + (C.fund.fv != null ? '₹' + inr1(C.fund.fv) : '–') + '</b></div>' +
     '<div><span>Yahoo symbol</span><b>' + esc(yOf(C.sym)) + '</b></div>';
@@ -748,35 +793,36 @@ function fundOf(sym) {
 function rowPasses(u, f, fund, ch) {
   if (f.onlyWL && S.wl.indexOf(u.sym) < 0) return false;
   if (f.sector !== 'ALL' && u.sec !== f.sector) return false;
-  if (f.mcapMin > 0 && (fund == null || fund.mcap == null || fund.mcap < f.mcapMin)) return false;
-  function chk(v, op, lim) {
-    if (v == null) return op === 'min' ? false : true; // nulls fail active minimums, pass inactive ones
-    return op === 'min' ? v >= lim : v <= lim;
-  }
-  if (f.peMax < 1000 && (fund == null || fund.pe == null || fund.pe > f.peMax)) return false;
-  if (f.roeMin > -100 && (fund == null || fund.roe == null || fund.roe < f.roeMin)) return false;
-  if (f.roceMin > -100 && (fund == null || fund.roce == null || fund.roce < f.roceMin)) return false;
-  if (f.dyMin > 0 && (fund == null || fund.dy == null || fund.dy < f.dyMin)) return false;
-  if (f.deMax < 99 && (fund == null || fund.de == null || fund.de > f.deMax)) return false;
-  if (f.gsMin > -100 && (fund == null || fund.gs == null || fund.gs < f.gsMin)) return false;
-  if (f.gpMin > -100 && (fund == null || fund.gp == null || fund.gp < f.gpMin)) return false;
-  if (f.opmMin > 0 && (fund == null || fund.opm == null || fund.opm < f.opmMin)) return false;
+  function minFail(v, lim) { return lim != null && (v == null || isNaN(v) || v < lim); }
+  function maxFail(v, lim) { return lim != null && (v == null || isNaN(v) || v > lim); }
+  if (minFail(fund && fund.mcap, f.mcapMin)) return false;
+  if (maxFail(fund && fund.pe, f.peMax)) return false;
+  if (minFail(fund && fund.roe, f.roeMin)) return false;
+  if (minFail(fund && fund.roce, f.roceMin)) return false;
+  if (minFail(fund && fund.dy, f.dyMin)) return false;
+  if (maxFail(fund && fund.de, f.deMax)) return false;
+  if (minFail(fund && fund.gs, f.gsMin)) return false;
+  if (minFail(fund && fund.gp, f.gpMin)) return false;
+  if (minFail(fund && fund.opm, f.opmMin)) return false;
   if (f.q && !matches(f.q, u.sym)) return false;
   return true;
 }
 function activeFilters(f) {
-  return f.mcapMin > 0 || f.peMax < 1000 || f.roeMin > -100 || f.roceMin > -100 || f.dyMin > 0 ||
-    f.deMax < 99 || f.gsMin > -100 || f.gpMin > -100 || f.opmMin > 0 || f.onlyWL || (f.q && f.q.trim());
+  return f.sector !== 'ALL' || f.mcapMin != null || f.peMax != null || f.roeMin != null || f.roceMin != null || f.dyMin != null ||
+    f.deMax != null || f.gsMin != null || f.gpMin != null || f.opmMin != null || f.onlyWL || (f.q && f.q.trim());
 }
 function sortVal(u, fund, ch, key) {
   switch (key) {
+    case 'sym': return u.sym;
+    case 'name': return nameOf(u.sym);
     case 'price': return ch ? ch.price : (fund && fund.price);
     case 'mcap': return fund && fund.mcap; case 'pe': return fund && fund.pe;
     case 'roe': return fund && fund.roe; case 'roce': return fund && fund.roce;
     case 'dy': return fund && fund.dy; case 'de': return fund && fund.de;
     case 'gs': return fund && fund.gs; case 'gp': return fund && fund.gp;
     case 'opm': return fund && fund.opm; case 'ret1y': return ch && ch.ret1y;
-    case 'name': return nameOf(u.sym); default: return fund && fund.mcap;
+    case 'wl': return S.wl.indexOf(u.sym) >= 0 ? 1 : 0;
+    default: return fund && fund.mcap;
   }
 }
 /* Screener rows: the curated universe plus any explored stocks whose
@@ -799,8 +845,10 @@ function screenRows() {
   var key = S.scr.sort, dir = S.scr.dir;
   out.sort(function (a, b) {
     var va = sortVal(a.u, a.fund, a.ch, key), vb = sortVal(b.u, b.fund, b.ch, key);
-    if (va == null && vb == null) return 0;
-    if (va == null) return 1; if (vb == null) return -1;
+    var aEmpty = (va == null || (typeof va === 'number' && isNaN(va)));
+    var bEmpty = (vb == null || (typeof vb === 'number' && isNaN(vb)));
+    if (aEmpty && bEmpty) return 0;
+    if (aEmpty) return 1; if (bEmpty) return -1;
     if (typeof va === 'string') return dir * String(va).localeCompare(String(vb));
     return dir * (va - vb);
   });
@@ -809,15 +857,15 @@ function screenRows() {
 function queryPreview() {
   var f = S.scr, p = [];
   if (f.sector !== 'ALL') p.push('Sector = "' + f.sector + '"');
-  if (f.mcapMin > 0) p.push('Market cap > ' + inr0(f.mcapMin));
-  if (f.peMax < 1000) p.push('P/E < ' + f.peMax);
-  if (f.roeMin > -100) p.push('ROE > ' + f.roeMin + '%');
-  if (f.roceMin > -100) p.push('ROCE > ' + f.roceMin + '%');
-  if (f.dyMin > 0) p.push('Dividend yield > ' + f.dyMin + '%');
-  if (f.deMax < 99) p.push('Debt/Equity < ' + f.deMax);
-  if (f.gsMin > -100) p.push('Sales growth 3Y > ' + f.gsMin + '%');
-  if (f.gpMin > -100) p.push('Profit growth 3Y > ' + f.gpMin + '%');
-  if (f.opmMin > 0) p.push('OPM > ' + f.opmMin + '%');
+  if (f.mcapMin != null) p.push('Market cap ≥ ' + inr0(f.mcapMin));
+  if (f.peMax != null) p.push('P/E ≤ ' + f.peMax);
+  if (f.roeMin != null) p.push('ROE ≥ ' + f.roeMin + '%');
+  if (f.roceMin != null) p.push('ROCE ≥ ' + f.roceMin + '%');
+  if (f.dyMin != null) p.push('Dividend yield ≥ ' + f.dyMin + '%');
+  if (f.deMax != null) p.push('Debt/Equity ≤ ' + f.deMax);
+  if (f.gsMin != null) p.push('Sales growth 3Y ≥ ' + f.gsMin + '%');
+  if (f.gpMin != null) p.push('Profit growth 3Y ≥ ' + f.gpMin + '%');
+  if (f.opmMin != null) p.push('OPM ≥ ' + f.opmMin + '%');
   if (f.onlyWL) p.push('in Watchlist');
   if (f.q.trim()) p.push('matches "' + f.q.trim() + '"');
   return p.length ? p.join('  AND  ') : 'All stocks (no filters)';
@@ -825,51 +873,56 @@ function queryPreview() {
 var SCR_COLS = [
   ['sym', 'Symbol'], ['name', 'Company'], ['price', 'CMP ₹'], ['mcap', 'M.Cap Cr'],
   ['pe', 'P/E'], ['roe', 'ROE%'], ['roce', 'ROCE%'], ['dy', 'Div%'], ['de', 'D/E'],
-  ['gs', 'SalesGr%'], ['gp', 'ProfitGr%'], ['ret1y', '1Y%'], ['wl', '★']
+  ['opm', 'OPM%'], ['gs', 'SalesGr%'], ['gp', 'ProfitGr%'], ['ret1y', '1Y%'], ['wl', '★']
 ];
+var _lastSectorKey = '';
 function renderScreener() {
   var f = S.scr;
   var secSel = $('f_sector');
-  if (!secSel.options.length) {
+  var secKey = SECTORS.join('|');
+  if (!secSel.options.length || secKey !== _lastSectorKey) {
+    _lastSectorKey = secKey;
     secSel.innerHTML = '<option value="ALL">All sectors</option>' + SECTORS.map(function (x) { return '<option>' + esc(x) + '</option>'; }).join('');
   }
   secSel.value = f.sector;
   $('queryPreview').textContent = queryPreview();
-  var nf = (f.sector !== 'ALL' ? 1 : 0) + (f.mcapMin > 0 ? 1 : 0) + (f.peMax < 1000 ? 1 : 0) +
-    (f.roeMin > -100 ? 1 : 0) + (f.roceMin > -100 ? 1 : 0) + (f.dyMin > 0 ? 1 : 0) +
-    (f.deMax < 99 ? 1 : 0) + (f.gsMin > -100 ? 1 : 0) + (f.gpMin > -100 ? 1 : 0) +
-    (f.opmMin > 0 ? 1 : 0) + (f.onlyWL ? 1 : 0) + (f.q.trim() ? 1 : 0);
+  var nf = (f.sector !== 'ALL' ? 1 : 0) + (f.mcapMin != null ? 1 : 0) + (f.peMax != null ? 1 : 0) +
+    (f.roeMin != null ? 1 : 0) + (f.roceMin != null ? 1 : 0) + (f.dyMin != null ? 1 : 0) +
+    (f.deMax != null ? 1 : 0) + (f.gsMin != null ? 1 : 0) + (f.gpMin != null ? 1 : 0) +
+    (f.opmMin != null ? 1 : 0) + (f.onlyWL ? 1 : 0) + (f.q.trim() ? 1 : 0);
   $('resetBtn').textContent = nf ? 'Reset (' + nf + ')' : 'Reset';
   var rows = screenRows();
   var per = 15, pages = Math.max(1, Math.ceil(rows.length / per));
   if (f.page >= pages) f.page = pages - 1;
   var slice = rows.slice(f.page * per, f.page * per + per);
-  function cell(v, isPct) {
-    if (v == null) return '<span class="muted">…</span>';
+  function cell(v, isPct, loaded) {
+    if (v == null || isNaN(v)) return '<span class="muted">' + (loaded ? '–' : '…') + '</span>';
     return isPct ? '<span class="' + numCls(v) + '">' + pct1(v) + '</span>' : inr1(v);
   }
   var h = '<table class="fin sortable"><thead><tr>';
   SCR_COLS.forEach(function (c) {
     var arrow = S.scr.sort === c[0] ? (S.scr.dir === 1 ? ' ▲' : ' ▼') : '';
-    h += '<th data-k="' + c[0] + '" class="' + (c[0] === 'sym' || c[0] === 'name' ? 'sticky' : 'num') + '">' + c[1] + arrow + '</th>';
+    var cls = c[0] === 'sym' ? 'sticky' : (c[0] === 'name' ? 'sticky2' : 'num');
+    h += '<th data-k="' + c[0] + '" class="' + cls + '">' + c[1] + arrow + '</th>';
   });
   h += '</tr></thead><tbody>';
   slice.forEach(function (r) {
-    var u = r.u, d = r.fund || {}, ch = r.ch;
+    var u = r.u, d = r.fund || {}, ch = r.ch, loaded = CO[u.sym] !== undefined;
     var stared = S.wl.indexOf(u.sym) >= 0;
     h += '<tr>' +
       '<td class="sticky"><a class="peerlink" data-sym="' + u.sym + '"><b>' + u.sym + '</b></a></td>' +
       '<td class="sticky2">' + esc(nameOf(u.sym)) + '</td>' +
-      '<td class="num">' + (ch ? inr1(ch.price) : (d.price != null ? inr1(d.price) : '<span class="muted">…</span>')) + '</td>' +
-      '<td class="num">' + (d.mcap != null ? inr0(d.mcap) : '<span class="muted">…</span>') + '</td>' +
-      '<td class="num">' + (d.pe != null ? inr1(d.pe) : '<span class="muted">…</span>') + '</td>' +
-      '<td class="num">' + (d.roe != null ? inr1(d.roe) : '<span class="muted">…</span>') + '</td>' +
-      '<td class="num">' + (d.roce != null ? inr1(d.roce) : '<span class="muted">…</span>') + '</td>' +
-      '<td class="num">' + (d.dy != null ? inr1(d.dy) : '<span class="muted">…</span>') + '</td>' +
-      '<td class="num">' + (d.de != null ? inr2(d.de) : '<span class="muted">…</span>') + '</td>' +
-      '<td class="num">' + cell(d.gs, true) + '</td>' +
-      '<td class="num">' + cell(d.gp, true) + '</td>' +
-      '<td class="num">' + (ch ? '<span class="' + numCls(ch.ret1y) + '">' + pct1(ch.ret1y) + '</span>' : '<span class="muted">…</span>') + '</td>' +
+      '<td class="num">' + (ch ? inr1(ch.price) : (d.price != null ? inr1(d.price) : '<span class="muted">' + (loaded ? '–' : '…') + '</span>')) + '</td>' +
+      '<td class="num">' + (d.mcap != null ? inr0(d.mcap) : '<span class="muted">' + (loaded ? '–' : '…') + '</span>') + '</td>' +
+      '<td class="num">' + cell(d.pe, false, loaded) + '</td>' +
+      '<td class="num">' + cell(d.roe, false, loaded) + '</td>' +
+      '<td class="num">' + cell(d.roce, false, loaded) + '</td>' +
+      '<td class="num">' + cell(d.dy, false, loaded) + '</td>' +
+      '<td class="num">' + (d.de != null ? inr2(d.de) : (d.negEq ? '<span class="neg">Neg</span>' : '<span class="muted">' + (loaded ? '–' : '…') + '</span>')) + '</td>' +
+      '<td class="num">' + cell(d.opm, false, loaded) + '</td>' +
+      '<td class="num">' + cell(d.gs, true, loaded) + '</td>' +
+      '<td class="num">' + cell(d.gp, true, loaded) + '</td>' +
+      '<td class="num">' + (ch && ch.ret1y != null ? '<span class="' + numCls(ch.ret1y) + '">' + pct1(ch.ret1y) + '</span>' : '<span class="muted">' + (ch ? '–' : '…') + '</span>') + '</td>' +
       '<td class="num"><button class="star sm2" data-wl="' + u.sym + '">' + (stared ? '★' : '☆') + '</button></td>' +
       '</tr>';
   });
@@ -894,14 +947,18 @@ function renderScreener() {
 }
 function readScreenerInputs() {
   var f = S.scr, g = function (id) { return $(id).value; };
-  f.q = g('f_q'); f.sector = g('f_sector');
-  f.mcapMin = +g('f_mcap') || 0; f.peMax = g('f_pe') === '' ? 1000 : +g('f_pe');
-  f.roeMin = g('f_roe') === '' ? -100 : +g('f_roe');
-  f.roceMin = g('f_roce') === '' ? -100 : +g('f_roce');
-  f.dyMin = +g('f_dy') || 0; f.deMax = g('f_de') === '' ? 99 : +g('f_de');
-  f.gsMin = g('f_gs') === '' ? -100 : +g('f_gs');
-  f.gpMin = g('f_gp') === '' ? -100 : +g('f_gp');
-  f.opmMin = +g('f_opm') || 0;
+  function numOrNull(id) {
+    var raw = String(g(id)).trim();
+    if (raw === '') return null;
+    var v = Number(raw);
+    return isNaN(v) ? null : v;
+  }
+  f.q = g('f_q'); f.sector = g('f_sector') || 'ALL';
+  f.mcapMin = numOrNull('f_mcap'); f.peMax = numOrNull('f_pe');
+  f.roeMin = numOrNull('f_roe'); f.roceMin = numOrNull('f_roce');
+  f.dyMin = numOrNull('f_dy'); f.deMax = numOrNull('f_de');
+  f.gsMin = numOrNull('f_gs'); f.gpMin = numOrNull('f_gp');
+  f.opmMin = numOrNull('f_opm');
   f.onlyWL = $('f_onlyWL').checked;
   f.page = 0;
 }
@@ -913,13 +970,13 @@ function renderPresets() {
     b.addEventListener('click', function () {
       resetScreenerInputs();
       var p = PRESETS[b.getAttribute('data-p')] || {};
-      if (p.mcapMin) $('f_mcap').value = p.mcapMin;
-      if (p.roeMin) $('f_roe').value = p.roeMin;
-      if (p.dyMin) $('f_dy').value = p.dyMin;
-      if (p.peMax) $('f_pe').value = p.peMax;
-      if (p.deMax) $('f_de').value = p.deMax;
-      if (p.gsMin) $('f_gs').value = p.gsMin;
-      if (p.gpMin) $('f_gp').value = p.gpMin;
+      if (p.mcapMin != null) $('f_mcap').value = p.mcapMin;
+      if (p.roeMin != null) $('f_roe').value = p.roeMin;
+      if (p.dyMin != null) $('f_dy').value = p.dyMin;
+      if (p.peMax != null) $('f_pe').value = p.peMax;
+      if (p.deMax != null) $('f_de').value = p.deMax;
+      if (p.gsMin != null) $('f_gs').value = p.gsMin;
+      if (p.gpMin != null) $('f_gp').value = p.gpMin;
       readScreenerInputs(); renderScreener();
       document.getElementById('screenSec').scrollIntoView({ behavior: 'smooth' });
     });
@@ -928,7 +985,7 @@ function renderPresets() {
 function resetScreenerInputs() {
   ['f_q', 'f_mcap', 'f_pe', 'f_roe', 'f_roce', 'f_dy', 'f_de', 'f_gs', 'f_gp', 'f_opm'].forEach(function (id) { $(id).value = ''; });
   $('f_sector').value = 'ALL'; $('f_onlyWL').checked = false;
-  S.scr = { q: '', sector: 'ALL', mcapMin: 0, peMax: 1000, roeMin: -100, roceMin: -100, dyMin: 0, deMax: 99, gsMin: -100, gpMin: -100, opmMin: 0, sort: 'mcap', dir: -1, page: 0, onlyWL: false };
+  S.scr = { q: '', sector: 'ALL', mcapMin: null, peMax: null, roeMin: null, roceMin: null, dyMin: null, deMax: null, gsMin: null, gpMin: null, opmMin: null, sort: 'mcap', dir: -1, page: 0, onlyWL: false };
 }
 
 /* progressive background load of the whole universe */
@@ -981,9 +1038,10 @@ async function loadAllData() {
   renderScreener();
   // refresh the open stock with chart if it arrived later
   if (S.mode === 'stock' && CO[S.sym]) {
+    var curSym = S.sym;
     try {
-      var CHx = await ensureChart(S.sym).catch(function () { return null; });
-      if (CHx) renderAll(CO[S.sym], CHx);
+      var CHx = await ensureChart(curSym).catch(function () { return null; });
+      if (S.mode === 'stock' && S.sym === curSym && CHx && CO[curSym]) renderAll(CO[curSym], CHx);
     } catch (e) {}
   }
   _loadingAll = false;
@@ -1061,22 +1119,39 @@ function downloadCSV(name, heads, lines) {
 }
 function exportScreener() {
   var rows = screenRows();
+  function q(s) { return '"' + String(s == null ? '' : s).replace(/"/g, '""') + '"'; }
+  function num(v, d) { return (v != null && Number.isFinite(v)) ? (d != null ? v.toFixed(d) : v) : ''; }
   var lines = rows.map(function (r) {
     var d = r.fund || {}, ch = r.ch;
-    function q(s) { return '"' + String(s == null ? '' : s).replace(/"/g, '') + '"'; }
-    return [r.u.sym, q(nameOf(r.u.sym)), r.u.sec, ch ? ch.price.toFixed(1) : '', d.mcap == null ? '' : d.mcap,
-      d.pe == null ? '' : d.pe, d.roe == null ? '' : d.roe, d.roce == null ? '' : d.roce, d.dy == null ? '' : d.dy,
-      d.de == null ? '' : d.de.toFixed(2), d.gs == null ? '' : d.gs.toFixed(1), d.gp == null ? '' : d.gp.toFixed(1),
-      ch ? ch.ret1y.toFixed(1) : ''].join(',');
+    return [q(r.u.sym), q(nameOf(r.u.sym)), q(r.u.sec), ch && Number.isFinite(ch.price) ? ch.price.toFixed(1) : num(d.price, 1),
+      num(d.mcap), num(d.pe), num(d.roe), num(d.roce), num(d.dy),
+      num(d.de, 2), num(d.opm, 1), num(d.gs, 1), num(d.gp, 1),
+      ch ? num(ch.ret1y, 1) : ''].join(',');
   });
-  downloadCSV('noobs_results.csv', ['Symbol', 'Company', 'Sector', 'CMP', 'MCap_Cr', 'PE', 'ROE', 'ROCE', 'DivYld', 'DE', 'SalesGr3Y', 'ProfitGr3Y', 'Ret1Y'], lines);
+  downloadCSV('noobs_results.csv', ['Symbol', 'Company', 'Sector', 'CMP', 'MCap_Cr', 'PE', 'ROE', 'ROCE', 'DivYld', 'DE', 'OPM', 'SalesGr3Y', 'ProfitGr3Y', 'Ret1Y'], lines);
 }
 function exportStock() {
+  function q(s) { return '"' + String(s == null ? '' : s).replace(/"/g, '""') + '"'; }
+  if (S.mode === 'index' && LAST_CH && S.index) {
+    var idxLines = LAST_CH.pts.map(function (p) {
+      var dt = new Date(p.t).toISOString().slice(0, 10);
+      return [dt, p.o != null ? p.o.toFixed(2) : '', p.h != null ? p.h.toFixed(2) : '', p.l != null ? p.l.toFixed(2) : '', p.c.toFixed(2), p.v || 0].join(',');
+    });
+    downloadCSV(S.index.label.replace(/[^a-z0-9]+/gi, '_') + '_history.csv', ['Date', 'Open', 'High', 'Low', 'Close', 'Volume'], idxLines);
+    return;
+  }
   var C = CO[S.sym] || cachedCompany(S.sym);
   if (!C || !C.pnl) return;
+  var revRow = findRow(C.pnl, ['sales', 'total income', 'revenue', 'interest earned']);
+  var opRow = findRow(C.pnl, ['operating profit', 'financing profit']);
+  var npRow = findRow(C.pnl, ['net profit']);
+  var epsRow = findRow(C.pnl, ['eps']);
   var lines = C.pnl.cols.map(function (L, i) {
-    function col(row) { return row ? row.vals[i].replace(/,/g, '') : ''; }
-    return [L, col(findRow(C.pnl, ['sales'])), col(findRow(C.pnl, ['operating profit'])), col(findRow(C.pnl, ['net profit'])), col(findRow(C.pnl, ['eps']))].join(',');
+    function col(row) {
+      var v = (row && row.vals && row.vals[i] != null) ? String(row.vals[i]).replace(/,/g, '') : '';
+      return q(v);
+    }
+    return [q(L), col(revRow), col(opRow), col(npRow), col(epsRow)].join(',');
   });
   downloadCSV(C.sym + '_financials.csv', ['Period', 'Sales_Cr', 'OpProfit_Cr', 'NetProfit_Cr', 'EPS'], lines);
 }
@@ -1105,6 +1180,13 @@ function init() {
   si.addEventListener('blur', function () { setTimeout(function () { $('searchDrop').hidden = true; }, 150); });
   si.addEventListener('keydown', function (e) {
     if (e.key === 'Enter') {
+      if (!si.value.trim()) return;
+      var firstDrop = $('searchDrop').querySelector('.sd-row');
+      if (firstDrop) {
+        if (firstDrop.hasAttribute('data-sym')) selectStock(firstDrop.getAttribute('data-sym'));
+        else if (firstDrop.hasAttribute('data-slug')) openSlug(firstDrop.getAttribute('data-slug'), firstDrop.getAttribute('data-name'));
+        return;
+      }
       var hits = ACTIVE_UNIVERSE.filter(function (u) { return matches(si.value, u.sym); });
       if (hits.length) selectStock(hits[0].sym);
     }
@@ -1165,7 +1247,7 @@ function init() {
     var best = null;
     links.forEach(function (a) {
       var el = document.querySelector(a.getAttribute('href'));
-      if (el && el.getBoundingClientRect().top < 140) best = a;
+      if (el && !el.hidden && el.getBoundingClientRect().top < 140) best = a;
     });
     links.forEach(function (a) { a.classList.toggle('on', a === best); });
   }, { passive: true });
