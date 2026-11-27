@@ -289,7 +289,7 @@ function parseCompany(html, sym) {
   var revRow = findRow(pnl, ['sales', 'total income', 'revenue', 'interest earned']);
   var npRow = findRow(pnl, ['net profit']);
   var opmRow = findRow(pnl, ['opm %']);
-  var borRow = findRow(bs, ['borrowings']);
+  var borRow = findRow(bs, ['borrowings', 'borrowing']);   // banks label it "Borrowing"
   var scRow = findRow(bs, ['share capital']);
   var resRow = findRow(bs, ['reserves']);
   var eq = null;

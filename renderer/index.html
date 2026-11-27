@@ -65,6 +65,15 @@
     <div class="metrics" id="metricsGrid"></div>
   </section>
 
+  <section class="card" id="valSec">
+    <div class="eyebrow">Time machine</div>
+    <h2>Valuation History <span class="tag" id="valTag">vs its own past</span></h2>
+    <p class="desc">Where today's multiple sits against this stock's own history — not just against peers.</p>
+    <div class="val-grid" id="valGrid"></div>
+    <div class="chart-wrap noprint"><canvas class="chart" id="valChart"></canvas></div>
+    <p class="muted val-note" id="valNote"></p>
+  </section>
+
   <section class="card" id="pcSec">
     <div class="eyebrow">Checklist</div>
     <h2>Pros &amp; Cons</h2>
@@ -182,6 +191,20 @@
     </div>
     <div class="tbl-scroll" id="screenTable"></div>
     <div class="pager noprint" style="margin-top:10px"><button class="btn sm ghost" id="prevPage">← Prev</button><span id="pageInfo">—</span><button class="btn sm ghost" id="nextPage">Next →</button></div>
+    <div class="bt-wrap noprint">
+      <div class="bt-head">
+        <b>Backtest this screen</b>
+        <select id="btYears" class="bt-sel">
+          <option value="1">1 year</option>
+          <option value="2">2 years</option>
+          <option value="3" selected>3 years</option>
+        </select>
+        <button class="btn sm" id="btRun">Run backtest</button>
+      </div>
+      <p class="bt-note">Equal-weight, buy &amp; hold, using fundamentals as they were published at that date (market cap uses today's share count). Excludes dividends.
+        Survivorship bias: the universe is today's list. Past performance is not a forecast.</p>
+      <div id="btOut"></div>
+    </div>
   </section>
 
   <section class="card" id="wlSec">
@@ -219,6 +242,7 @@
 <script src="universe.js"></script>
 <script src="live.js"></script>
 <script src="news.js"></script>
+<script src="valuation.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

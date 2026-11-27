@@ -166,6 +166,118 @@ async function boot(opts) {
     assert.strictEqual(items.length, 0);
   });
 
+  console.log('\ntime machine (valuation + backtest)');
+
+  /* a compact but internally consistent company: 6 fiscal years of statements */
+  function fixtureCompany(sym, name, np, priceStart, priceEnd) {
+    const years = ['Mar 2021', 'Mar 2022', 'Mar 2023', 'Mar 2024', 'Mar 2025', 'Mar 2026'];
+    const row = (label, vals) => ({ label, vals: vals.map(String), nums: vals.map(Number) });
+    const pts = [];
+    for (let i = 0; i <= 240; i++) {
+      const t = Date.UTC(2023, 0, 1) + i * 5 * 86400000;
+      pts.push({ t, c: priceStart + (priceEnd - priceStart) * i / 240 });
+    }
+    return {
+      C: {
+        sym, name,
+        fund: { fv: 1, pe: 20, bv: 100 },
+        pnl: {
+          cols: years.concat(['TTM']),
+          rows: [
+            row('Sales', [100, 110, 120, 130, 140, 150, 155]),
+            row('Operating Profit', [20, 22, 24, 26, 28, 30, 31]),
+            row('OPM %', [20, 20, 20, 20, 20, 20, 20]),
+            row('Net Profit', np.concat([np[np.length - 1] + 2])),
+            row('EPS in Rs', np.map(v => v / 10).concat([(np[np.length - 1] + 2) / 10])),
+            row('Dividend Payout %', [20, 20, 20, 20, 20, 20, 20])
+          ]
+        },
+        bs: {
+          cols: years,
+          rows: [
+            row('Equity Capital', [100, 100, 100, 100, 100, 100]),
+            row('Reserves', [400, 450, 500, 550, 600, 650]),
+            row('Borrowings', [50, 45, 40, 35, 30, 25])
+          ]
+        },
+        rat: { cols: years, rows: [row('ROCE %', [18, 19, 20, 21, 22, 23])] }
+      },
+      chart: { pts }
+    };
+  }
+
+  await test('valuation card shows P/E, P/B and a percentile chip', () => {
+    const f = fixtureCompany('TCS', 'Tata Consultancy Services', [100, 110, 120, 130, 140, 150], 2000, 3000);
+    app.window.CO['TCS'] = f.C;
+    app.window.renderVal(f.C, f.chart);
+    const grid = app.doc.getElementById('valGrid');
+    assert.ok(/P\/E/.test(grid.textContent) && /P\/B/.test(grid.textContent), 'both multiples shown');
+    assert.ok(/×/.test(grid.textContent), 'value has a multiple: ' + grid.textContent.slice(0, 120));
+    assert.ok(/chip /.test(grid.innerHTML), 'a percentile chip is rendered');
+    assert.ok(/cheaper than|in line|dearer than/.test(grid.textContent), 'chip wording: ' + grid.textContent);
+    assert.ok(/shares/.test(app.doc.getElementById('valNote').textContent), 'method note explains the share basis');
+  });
+
+  await test('valuation card degrades gracefully without price history', () => {
+    const f = fixtureCompany('X', 'X Ltd', [10, 10, 10, 10, 10, 10], 100, 100);
+    app.window.renderVal(f.C, null);
+    const grid = app.doc.getElementById('valGrid');
+    assert.ok(/Not enough/.test(grid.textContent), 'fallback message: ' + grid.textContent.slice(0, 80));
+  });
+
+  await test('valuation maths never returns impossible numbers', () => {
+    const f = fixtureCompany('Y', 'Y Ltd', [50, 60, 70, 80, 90, 100], 500, 900);
+    const v = app.window.valForCompany(f.C, f.chart);
+    assert.ok(isFinite(v.pe.now) && v.pe.now > 0, 'P/E finite');
+    assert.ok(isFinite(v.pb.now) && v.pb.now > 0, 'P/B finite');
+    assert.ok(v.pe.p20 <= v.pe.median && v.pe.median <= v.pe.p80, 'P/E bands ordered');
+    assert.ok(v.pe.percentile >= 0 && v.pe.percentile <= 100, 'percentile in range');
+  });
+
+  await test('backtest KPIs and stock table render from a result', () => {
+    app.window.renderBacktest({
+      count: 3, universe: 160, avgReturn: 40, cagr: 12.5, benchReturn: 20, benchCagr: 6.3,
+      maxDrawdown: -18.4, hitRate: 66.7, years: 3,
+      picks: [
+        { sym: 'A', name: 'Alpha Ltd', ret: 80, pe: 18, roe: 22 },
+        { sym: 'B', name: 'Beta Ltd', ret: 20, pe: 25, roe: 15 },
+        { sym: 'C', name: 'Gamma Ltd', ret: -10, pe: 30, roe: 9 }
+      ]
+    }, 3);
+    const out = app.doc.getElementById('btOut');
+    assert.ok(/Stocks passing\s*3 \/ 160/.test(out.textContent.replace(/\s+/g, ' ')), 'coverage shown: ' + out.textContent.slice(0, 140));
+    assert.ok(/\+12\.5%/.test(out.textContent), 'CAGR shown');
+    assert.ok(/vs NIFTY/.test(out.textContent) && /\+6\.2 pp/.test(out.textContent), 'alpha vs NIFTY: ' + out.textContent.slice(0, 200));
+    assert.ok(/-18\.4%/.test(out.textContent), 'drawdown shown');
+    assert.strictEqual(out.querySelectorAll('tbody tr').length, 3, 'picks table rows');
+    assert.ok(/Gamma/.test(out.textContent));
+  });
+
+  await test('backtest explains an empty result instead of showing zeros', () => {
+    app.window.renderBacktest({ count: 0, universe: 160, picks: [] }, 3);
+    const out = app.doc.getElementById('btOut');
+    assert.ok(/No stock in the universe passed/.test(out.textContent), out.textContent.slice(0, 100));
+  });
+
+  await test('runBacktest end-to-end over a stubbed universe', async () => {
+    const a = fixtureCompany('AAA', 'Alpha Ltd', [100, 110, 120, 130, 140, 150], 100, 200);  // strong
+    const b = fixtureCompany('BBB', 'Beta Ltd', [90, 95, 100, 105, 110, 115], 200, 150);     // falling
+    app.window.CO['AAA'] = a.C; app.window.CO['BBB'] = b.C;
+    app.window.CH['AAA.NS'] = a.chart; app.window.CH['BBB.NS'] = b.chart;
+    app.window.ACTIVE_UNIVERSE.push({ sym: 'AAA', y: 'AAA.NS', sec: 'IT', n: 'Alpha Ltd' });
+    app.window.ACTIVE_UNIVERSE.push({ sym: 'BBB', y: 'BBB.NS', sec: 'IT', n: 'Beta Ltd' });
+    app.window._screenerKicked = true;   // don't kick a real 160-stock load
+    app.window._loadingAll = false;
+    app.window.S.scr = Object.assign({}, app.window.S.scr, { peMax: 1000, q: '', sector: 'ALL', onlyWL: false });
+
+    await app.window.runBacktest();
+    const out = app.doc.getElementById('btOut').textContent;
+    assert.ok(/Stocks passing\s*2 \/ 2/.test(out.replace(/\s+/g, ' ')), 'both stubs selected: ' + out.slice(0, 160));
+    assert.ok(/CAGR/.test(out), 'CAGR row present');
+    assert.ok(/Alpha Ltd/.test(out), 'winner listed');
+    assert.strictEqual(app.doc.getElementById('btRun').disabled, false, 'button re-enabled');
+  });
+
   console.log(failures ? '\n' + failures + ' test(s) failed\n' : '\nAll tests passed\n');
   process.exit(failures ? 1 : 0);
 })();

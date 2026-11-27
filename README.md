@@ -2,8 +2,9 @@
 
 One-page Indian stock screener — live prices/charts (Yahoo Finance, NSE), financials,
 ratios, peers, pros/cons, shareholding (screener.in, parsed live), **per-company news
-(free RSS, no API key)**, 160-stock curated universe + universal search across every
-stock on screener.in, custom screener, watchlist, light/dark themes.
+(free RSS, no API key)**, **valuation history + screen backtesting ("Time Machine")**,
+160-stock curated universe + universal search across every stock on screener.in,
+custom screener, watchlist, light/dark themes.
 
 This repo runs the app **outside Perchance** in two ways:
 
@@ -100,6 +101,33 @@ Inside that folder:
 Because the cache survives restarts, only the first launch of a day fetches data;
 later launches render straight from disk. **Refresh** clears the cache only — your
 watchlist is never touched.
+
+## Time Machine: valuation history + backtesting
+
+Two things free Indian screeners usually don't do.
+
+**1. Is it cheap for *this* stock?** Every stock page shows P/E and P/B against that
+stock's own multi-year history: current multiple, percentile ("cheaper than 78% of its
+history"), median, 20th–80th percentile band, and a chart of the whole series.
+
+**2. Would the screen have actually worked?** In the screener card, **Backtest this
+screen** rebuilds your current filters as of 1–3 years ago, equal-weights the stocks that
+passed, and reports CAGR, NIFTY CAGR, alpha, max drawdown and hit rate — plus the picks
+with the return each one made.
+
+How the numbers are produced (`renderer/valuation.js`):
+
+| Input | Source / rule |
+|---|---|
+| EPS, net profit, book value | screener.in annual statements (10 years) |
+| Price series | Yahoo Finance daily closes (5 years, split/bonus adjusted) |
+| "Known at the time" | a fiscal year counts from **year end + 90 days**, approximating filing dates |
+| Per-share history | today's share count (equity capital ÷ face value) — the same basis as adjusted prices |
+| Today's multiple | anchored to the P/E and book value the source publishes, so this card never contradicts the rest of the app |
+
+Honest limits, all shown in the UI: the backtest universe is *today's* 160 stocks
+(survivorship bias), dividends are excluded, market cap uses today's share count, and
+ROCE comes from the published ratio table (banks have none — shown as “–”, never invented).
 
 ## Speed
 
