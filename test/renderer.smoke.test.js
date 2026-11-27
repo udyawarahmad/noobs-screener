@@ -9,8 +9,15 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { pathToFileURL } = require('url');
-const { JSDOM, VirtualConsole } = require('jsdom');
+const zlib = require('zlib');
 const { createStore } = require('../main-store');
+
+/* jsdom (via undici) needs Node 22+; skip rather than fail on older runtimes. */
+if (typeof zlib.createZstdDecompress !== 'function') {
+  console.log('\nskipped: the renderer smoke test needs Node 22+ (found ' + process.version + ')\n');
+  process.exit(0);
+}
+const { JSDOM, VirtualConsole } = require('jsdom');
 
 const ROOT = path.join(__dirname, '..');
 
