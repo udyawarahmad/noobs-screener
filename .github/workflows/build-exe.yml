@@ -3,8 +3,10 @@ name: Build Windows EXE
 # Builds the Windows .exe (installer + portable) with electron-builder on a
 # Windows runner, then uploads the .exe files to the GitHub Release.
 #
-# Run it manually: Actions tab -> "Build Windows EXE" -> Run workflow.
-# Or push a tag (v* or noobsscreener) and the build starts automatically.
+# - Push a tag (v* or noobsscreener) -> build + upload to that tag's Release.
+# - Push to this branch -> build + upload to the "noobsscreener" Release.
+# - Once this file is on the default branch, you can also run it manually:
+#   Actions tab -> "Build Windows EXE" -> Run workflow.
 
 on:
   workflow_dispatch:
@@ -14,6 +16,8 @@ on:
         required: false
         default: "noobsscreener"
   push:
+    branches:
+      - "arena/**"
     tags:
       - "v*"
       - "noobsscreener"
@@ -53,7 +57,9 @@ jobs:
         if: github.event_name == 'push' || inputs.release_tag != ''
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event_name == 'push' && github.ref_name || inputs.release_tag }}
-          name: ${{ github.event_name == 'push' && github.ref_name || inputs.release_tag }}
+          # Tag push -> that tag. Branch push / manual run -> chosen tag
+          # (defaults to the existing "noobsscreener" Release).
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || inputs.release_tag || 'noobsscreener' }}
+          name: ${{ github.ref_type == 'tag' && github.ref_name || inputs.release_tag || 'noobsscreener' }}
           files: dist/*.exe
           fail_on_unmatched_files: true
