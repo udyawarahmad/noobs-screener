@@ -127,6 +127,13 @@ table.fin,#stPrice,.wl-p,.sd-p,.idx b{font-variant-numeric:tabular-nums}
 
 /* ---------- layout ---------- */
 .wrap{max-width:1220px;margin:0 auto;padding:20px 16px 64px}
+/* Desktop (Electron) build: backdrop blur on the sticky bars is by far the most
+   expensive thing to repaint while scrolling on Windows, so use solid surfaces. */
+body.native .topbar,body.native .subnav{
+  background:var(--card);
+  -webkit-backdrop-filter:none;backdrop-filter:none;
+}
+body.native .overlay{-webkit-backdrop-filter:none;backdrop-filter:none;background:rgba(0,0,0,.5)}
 .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r-l);padding:20px 22px;margin:16px 0;box-shadow:var(--shadow)}
 /* ---- News ---- */
 .news-list{display:flex;flex-direction:column;gap:2px}

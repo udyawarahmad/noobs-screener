@@ -79,7 +79,9 @@ function newsFeeds(C) {
   var name = String((C && C.name) || (C && C.sym) || '').replace(/"/g, '').trim();
   var sym = (C && C.sym) || '';
   var ySym = (C && C.y) || (typeof yOf === 'function' ? yOf(sym) : sym + '.NS');
-  var q = '"' + (name || sym) + '" share';
+  // quoted company name keeps the feed on-topic; the strict filter below is the
+  // real guarantee, the query just improves the hit rate
+  var q = '"' + (name || sym) + '" share OR stock';
   return [
     {
       id: 'google',
@@ -102,22 +104,106 @@ function newsFeeds(C) {
   ];
 }
 
-/* Keep only headlines that actually mention the company (or its symbol), so a
-   loose feed match can't fill the card with unrelated market news. Falls back to
-   the unfiltered list rather than showing nothing. */
+/* Strict relevance. A headline is kept only if it is about THIS company:
+
+     1. it contains the company's full name (minus filler words), or
+     2. it contains every distinctive word of the name ("Power Grid" -> both
+        "power" and "grid" must appear), or
+     3. it contains the ticker / a known short form (L&T, HUL, M&M, ...) as a word.
+
+   Anything else is dropped — the card shows fewer (or zero) headlines rather than
+   filling up with unrelated market news. */
+
+/* words that say nothing about which company it is */
+var NEWS_FILLER = [
+  'limited', 'ltd', 'pvt', 'private', 'india', 'indian', 'the', 'and', 'of', 'for', 'co',
+  'company', 'corporation', 'corp', 'industries', 'industry', 'group', 'holdings', 'holding',
+  'enterprises', 'enterprise', 'international', 'global', 'services', 'solutions'
+];
+
+/* ticker -> how the press usually writes it */
+var NEWS_ALIAS = {
+  LT: ['L&T', 'Larsen'],
+  HINDUNILVR: ['HUL', 'Hindustan Unilever'],
+  M_M: ['M&M', 'Mahindra'],
+  MMS: ['M&M'],
+  SBIN: ['SBI', 'State Bank'],
+  HDFCBANK: ['HDFC Bank'],
+  ICICIBANK: ['ICICI Bank'],
+  RELIANCE: ['RIL', 'Reliance'],
+  TCS: ['TCS', 'Tata Consultancy'],
+  INFY: ['Infosys'],
+  WIPRO: ['Wipro'],
+  ITC: ['ITC'],
+  BAJFINANCE: ['Bajaj Finance'],
+  MARUTI: ['Maruti', 'Maruti Suzuki'],
+  SUNPHARMA: ['Sun Pharma'],
+  DRREDDY: ['Dr Reddy'],
+  COALINDIA: ['Coal India'],
+  ONGC: ['ONGC'],
+  NTPC: ['NTPC'],
+  POWERGRID: ['Power Grid'],
+  BHARTIARTL: ['Bharti Airtel', 'Airtel'],
+  TATAMOTORS: ['Tata Motors'],
+  TATASTEEL: ['Tata Steel'],
+  ADANIENT: ['Adani Enterprises'],
+  ADANIPORTS: ['Adani Ports'],
+  AXISBANK: ['Axis Bank'],
+  KOTAKBANK: ['Kotak'],
+  HCLTECH: ['HCL Tech', 'HCL Technologies'],
+  TECHM: ['Tech Mahindra'],
+  ULTRACEMCO: ['UltraTech'],
+  ASIANPAINT: ['Asian Paints'],
+  NESTLEIND: ['Nestle'],
+  BRITANNIA: ['Britannia'],
+  CIPLA: ['Cipla'],
+  DIVISLAB: ['Divi'],
+  EICHERMOT: ['Eicher', 'Royal Enfield'],
+  HEROMOTOCO: ['Hero MotoCorp'],
+  BAJAJ_AUTO: ['Bajaj Auto'],
+  INDUSINDBK: ['IndusInd'],
+  JSWSTEEL: ['JSW Steel'],
+  TITAN: ['Titan'],
+  LTIM: ['LTIMindtree'],
+  DMART: ['DMart', 'Avenue Supermarts']
+};
+
+/* lowercase, "&" becomes a separator so "Larsen & Toubro" and "M&M" normalise
+   the way headlines are written */
+function newsNorm(str) {
+  return String(str || '').toLowerCase().replace(/&/g, ' ').replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+/* Words that identify the company; falls back to the raw name for short names. */
+function newsKeys(C) {
+  var name = String((C && C.name) || (C && C.sym) || '');
+  var words = newsNorm(name).split(' ').filter(Boolean);
+  var core = words.filter(function (w) { return NEWS_FILLER.indexOf(w) < 0; });
+  var sym = String((C && C.sym) || '').toUpperCase();
+  var aliasKey = sym.replace(/&/g, '_');
+  var aliases = (NEWS_ALIAS[aliasKey] || NEWS_ALIAS[sym] || []).map(newsNorm).filter(Boolean);
+  return { full: core.join(' '), core: core, sym: newsNorm(sym), aliases: aliases };
+}
+
+function newsMatches(title, keys) {
+  var t = ' ' + newsNorm(title) + ' ';
+  if (!t.trim()) return false;
+  if (keys.full && t.indexOf(' ' + keys.full + ' ') >= 0) return true;
+  if (keys.core.length >= 2) {
+    var all = keys.core.every(function (w) { return t.indexOf(' ' + w + ' ') >= 0; });
+    if (all) return true;
+  }
+  if (keys.sym && new RegExp(' ' + keys.sym.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ' ').test(t)) return true;
+  for (var i = 0; i < keys.aliases.length; i++) {
+    if (t.indexOf(' ' + keys.aliases[i] + ' ') >= 0) return true;
+  }
+  return false;
+}
+
 function newsRelevant(items, C) {
-  var name = String((C && C.name) || '');
-  var tokens = name.toLowerCase().split(/[^a-z0-9]+/).filter(function (w) {
-    return w.length >= 4 && ['limited', 'ltd', 'india', 'company', 'corporation', 'industries', 'the'].indexOf(w) < 0;
-  });
-  var sym = String((C && C.sym) || '').toLowerCase();
-  if (!tokens.length && !sym) return items;
-  var kept = items.filter(function (it) {
-    var t = it.title.toLowerCase();
-    if (sym && t.indexOf(sym) >= 0) return true;
-    return tokens.some(function (w) { return t.indexOf(w) >= 0; });
-  });
-  return kept.length >= 2 ? kept : items;
+  var keys = newsKeys(C);
+  if (!keys.full && !keys.sym) return [];
+  return items.filter(function (it) { return newsMatches(it.title, keys); });
 }
 
 /* Fetch news for a company: cached -> Google -> Bing -> Yahoo. */

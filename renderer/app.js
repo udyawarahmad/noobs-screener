@@ -41,6 +41,32 @@ function saveWL() { try { PStore.setState('screenone_wl', JSON.stringify(S.wl));
 /* Re-render the screener table at most a few times a second: during the bulk
    load each arriving stock used to repaint all ~160 rows. */
 var _scrTimer = null;
+/* The screener needs data for the whole universe; loading it at startup made the
+   window sluggish for no benefit if the user only looked at a stock. */
+var _screenerKicked = false;
+function kickScreenerLoad() {
+  if (_screenerKicked) return;
+  _screenerKicked = true;
+  loadAllData();
+}
+function setupScreenerLazyLoad() {
+  var sec = $('screenSec');
+  var lt = $('loadTxt');
+  var want = ACTIVE_UNIVERSE.filter(function (u) { return !cachedCompany(u.sym); }).length;
+  if (lt && want > 0) lt.textContent = 'Live data for ' + want + ' stocks loads when this section is in view.';
+  else if (lt) lt.textContent = 'Screener data is cached and up to date.';
+  if (!want) { _screenerKicked = true; renderScreener(); return; }   // cache is warm
+  if (typeof IntersectionObserver === 'function' && sec) {
+    var io = new IntersectionObserver(function (entries) {
+      for (var i = 0; i < entries.length; i++) {
+        if (entries[i].isIntersecting) { io.disconnect(); kickScreenerLoad(); return; }
+      }
+    }, { rootMargin: '300px 0px' });
+    io.observe(sec);
+  } else {
+    setTimeout(kickScreenerLoad, 2500);
+  }
+}
 function renderScreenerSoon() {
   if (_scrTimer) return;
   _scrTimer = setTimeout(function () { _scrTimer = null; renderScreener(); }, 300);
@@ -348,10 +374,12 @@ function selectStock(sym) {
 async function loadAndRender(sym) {
   if (S.sym !== sym) return;
   try {
-    var C = await ensureCompany(sym);
-    if (S.sym !== sym) return;
-    var CH = null;
-    try { CH = await ensureChart(sym); } catch (e) { CH = null; }
+    // company page and price history are independent -> fetch together
+    var pair = await Promise.all([
+      ensureCompany(sym),
+      ensureChart(sym).catch(function () { return null; })
+    ]);
+    var C = pair[0], CH = pair[1];
     if (S.sym !== sym) return;
     CO[sym] = C;
     // adopt screener's sector for dynamic entries; grow the sector list for everyone
@@ -738,12 +766,12 @@ function timeAgo(ms) {
   if (!ms) return '';
   var d = Date.now() - ms;
   if (d < 0) return 'just now';
-  var m = Math.round(d / 60000);
+  var m = Math.floor(d / 60000);
   if (m < 1) return 'just now';
   if (m < 60) return m + 'm ago';
-  var h = Math.round(m / 60);
+  var h = Math.floor(m / 60);
   if (h < 24) return h + 'h ago';
-  var dd = Math.round(h / 24);
+  var dd = Math.floor(h / 24);
   if (dd < 30) return dd + 'd ago';
   return new Date(ms).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
 }
@@ -998,6 +1026,15 @@ var _loadingAll = false;
 async function loadAllData() {
   if (_loadingAll) return;
   _loadingAll = true;
+  try {
+    await _loadAllDataInner();
+  } catch (e) {
+    var lt2 = $('loadTxt'); if (lt2) lt2.textContent = 'Load failed — tap Refresh to retry.';
+  } finally {
+    _loadingAll = false;
+  }
+}
+async function _loadAllDataInner() {
   var syms = ACTIVE_UNIVERSE.map(function (u) { return u.sym; });
   var need = syms.filter(function (s) { return !cachedCompany(s); });
   var total = need.length, doneN = 0, failN = 0;
@@ -1006,15 +1043,15 @@ async function loadAllData() {
     var tx = $('loadTxt'); if (tx) tx.textContent = label;
   }
   progress(2, total ? 'Loading live financials… 0/' + total : 'Checking cache…');
-  await mapLimit(need, 2, async function (s) {
+  await mapLimit(need, 3, async function (s) {
     try { CO[s] = await ensureCompany(s); }
     catch (e) {
       // one gentle retry — bulk bursts can trip transient proxy/rate limits
-      await sleep(1500);
+      await sleep(1200);
       try { CO[s] = await ensureCompany(s); }
       catch (e2) { CO[s] = null; failN++; }
     }
-    await sleep(400);
+    await sleep(250);
     return true;
   }, function (d) {
     doneN = d;
@@ -1048,7 +1085,6 @@ async function loadAllData() {
       if (CHx) renderAll(CO[S.sym], CHx);
     } catch (e) {}
   }
-  _loadingAll = false;
 }
 
 /* loadAllData wrapper: never leave the busy flag stuck on unexpected throws */
@@ -1155,14 +1191,18 @@ function setTheme(t) {
 }
 function init() {
   document.documentElement.setAttribute('data-theme', S.theme);
+  // desktop build: swap the blurred sticky bars for solid ones (cheaper to paint)
+  if (typeof PStore !== 'undefined' && PStore.isDisk) document.body.classList.add('native');
   $('themeBtn').textContent = S.theme === 'dark' ? 'Light' : 'Dark';
-  renderIndices(); renderPresets();
+  renderPresets();
   renderScreener(); renderWatchlist();
   showSkeletons();
   loadAndRender(S.sym);
-  // Bulk load (160 companies + price history) runs after the first paint so the
-  // window is usable immediately; with a warm cache it is a no-op.
-  setTimeout(function () { loadAllData(); }, 700);
+  // the index strip is secondary: let the stock hero paint first
+  setTimeout(renderIndices, 250);
+  // The 160-stock bulk load only starts when the screener card comes into view
+  // (or the user touches its filters). It never competes with the first paint.
+  setupScreenerLazyLoad();
   var si = $('searchInput');
   si.addEventListener('input', function () { renderSearchDrop(si.value); });
   si.addEventListener('focus', function () { renderSearchDrop(si.value); });
@@ -1190,8 +1230,10 @@ function init() {
     });
   });
   ['f_q', 'f_sector', 'f_mcap', 'f_pe', 'f_roe', 'f_roce', 'f_dy', 'f_de', 'f_gs', 'f_gp', 'f_opm', 'f_onlyWL'].forEach(function (id) {
-    $(id).addEventListener('input', function () { readScreenerInputs(); renderScreener(); });
-    $(id).addEventListener('change', function () { readScreenerInputs(); renderScreener(); });
+    var el = $(id);
+    if (!el) return;
+    el.addEventListener('input', function () { kickScreenerLoad(); readScreenerInputs(); renderScreenerSoon(); });
+    el.addEventListener('change', function () { kickScreenerLoad(); readScreenerInputs(); renderScreenerSoon(); });
   });
   $('resetBtn').addEventListener('click', function () { resetScreenerInputs(); renderScreener(); });
   $('copyQueryBtn').addEventListener('click', function () {
@@ -1212,6 +1254,7 @@ function init() {
     } else {
       if (typeof liveCacheClear === 'function') liveCacheClear();
       CO = {}; CH = {};
+      _screenerKicked = true;
       if (lt) lt.textContent = 'Cache cleared — reloading live…';
       loadAllData();
     }

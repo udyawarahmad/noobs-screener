@@ -26,52 +26,9 @@ function _getSF() {
   return null;
 }
 
-/* GET text: direct fetch first, then the CORS-free proxy plugin. 30s timeouts so
-   one slow host can never stall the whole page. */
-function _withTimeout(ms) {
-  try {
-    var c = new AbortController();
-    var t = setTimeout(function () { try { c.abort(); } catch (e) {} }, ms);
-    return { signal: c.signal, done: function () { clearTimeout(t); } };
-  } catch (e) { return null; }
-}
-async function httpText(url, preferProxy) {
-  if (!preferProxy) {
-    var w1 = _withTimeout(30000);
-    try {
-      var r = await fetch(url, { credentials: 'omit', signal: w1 && w1.signal });
-      if (w1) w1.done();
-      if (r.ok) return await r.text();
-    } catch (e) { if (w1) w1.done(); }
-  }
-  var sf = _getSF();
-  if (!sf) throw new Error('network blocked');
-  var w2 = _withTimeout(30000);
-  try {
-    var r2 = await sf(url, w2 ? { signal: w2.signal } : undefined);
-    if (w2) w2.done();
-    if (r2.ok === false || (r2.status && (r2.status < 200 || r2.status >= 300))) throw new Error('HTTP ' + r2.status);
-    return await r2.text();
-  } catch (e) { if (w2) w2.done(); throw e; }
-}
-async function httpJSON(url) {
-  var w1 = _withTimeout(30000);
-  try {
-    var r = await fetch(url, { credentials: 'omit', signal: w1 && w1.signal });
-    if (w1) w1.done();
-    if (r.ok) return await r.json();
-  } catch (e) { if (w1) w1.done(); }
-  var sf = _getSF();
-  if (!sf) throw new Error('network blocked');
-  var w2 = _withTimeout(30000);
-  try {
-    var r2 = await sf(url, w2 ? { signal: w2.signal } : undefined);
-    if (w2) w2.done();
-    if (r2.ok === false || (r2.status && (r2.status < 200 || r2.status >= 300))) throw new Error('HTTP ' + r2.status);
-    return await r2.json();
-  } catch (e) { if (w2) w2.done(); throw e; }
-}
-
+/* NOTE: the live fetch layer lives further down (Electron main-process proxy ->
+   direct fetch -> public CORS proxy); this block used to hold a second, unused
+   copy of httpText/httpJSON, which just made the file confusing. */
 /* ---------- Yahoo Finance price history ---------- */
 async function loadChart(ySym) {
   var key = 'ch3:' + ySym, c = liveCacheGet(key);
@@ -405,6 +362,15 @@ async function mapLimit(items, limit, fn, onEach) {
   return out;
 }
 function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+/* Abort-based timeout helper: one slow host can never stall a whole page. */
+function _withTimeout(ms) {
+  try {
+    var c = new AbortController();
+    var t = setTimeout(function () { try { c.abort(); } catch (e) {} }, ms);
+    return { signal: c.signal, done: function () { clearTimeout(t); } };
+  } catch (e) { return null; }
+}
 
 /* ---------- standalone fetch layer (GitHub/Electron build) ----------
    Order: Electron main-process proxy (no CORS) -> direct fetch (Yahoo

@@ -64,6 +64,7 @@ function createWindow() {
     minHeight: 600,
     title: 'Noobs Screener',
     backgroundColor: '#f5f5f7',
+    show: false,          // avoids the white flash: shown once the page can paint
     icon: path.join(__dirname, 'assets/icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -81,6 +82,7 @@ function createWindow() {
     if (/^https?:\/\//i.test(url)) { event.preventDefault(); shell.openExternal(url); }
   });
 
+  win.once('ready-to-show', function () { win.show(); });
   win.loadFile(path.join(__dirname, 'renderer/index.html'));
   // win.webContents.openDevTools(); // uncomment while debugging
 }

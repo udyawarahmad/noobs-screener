@@ -1,7 +1,7 @@
 {
   "name": "noobs-screener",
   "productName": "Noobs Screener",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Noobs Screener — one-page Indian stock screener (live prices, financials, ratios, shareholding).",
   "main": "main.js",
   "author": "",
@@ -9,11 +9,12 @@
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder --win nsis portable --publish never",
-    "test": "node test/persistence.test.js && node test/news.test.js"
+    "test": "node test/persistence.test.js && node test/news.test.js && node test/renderer.smoke.test.js"
   },
   "devDependencies": {
     "electron": "^33.2.0",
-    "electron-builder": "^25.1.8"
+    "electron-builder": "^25.1.8",
+    "jsdom": "^31.0.1"
   },
   "build": {
     "appId": "com.noobs.screener",
@@ -30,14 +31,15 @@
       "icon": "assets/icon.ico",
       "target": [
         "nsis",
-        "portable"
-      ],
-      "artifactName": "Noobs-Screener-Setup-${version}.exe"
+        "portable",
+        "zip"
+      ]
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "shortcutName": "Noobs Screener"
+      "shortcutName": "Noobs Screener",
+      "artifactName": "Noobs-Screener-Setup-${version}.exe"
     },
     "portable": {
       "artifactName": "Noobs-Screener-Portable-${version}.exe"

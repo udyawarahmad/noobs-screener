@@ -148,18 +148,30 @@ test('caches results so reopening a stock does not refetch', async () => {
   assert.ok(cache['news:RELIANCE']);
 });
 
-test('filters out headlines that never mention the company', async () => {
+test('drops unrelated market news, keeps company + short-form headlines', async () => {
   const cache = {};
-  const unrelated = `<rss><channel>
+  const mixed = `<rss><channel>
     <item><title>Sensex ends 300 points higher</title><link>https://example.com/1</link></item>
     <item><title>Rupee weakens against dollar</title><link>https://example.com/2</link></item>
     <item><title>Reliance Industries wins new order</title><link>https://example.com/3</link></item>
     <item><title>RIL to invest in green energy</title><link>https://example.com/4</link></item>
   </channel></rss>`;
-  const sb = loadNews(cache, async () => unrelated);
+  const sb = loadNews(cache, async () => mixed);
   const res = await sb.loadNews({ sym: 'RELIANCE', name: 'Reliance Industries' });
-  const titles = res.items.map((i) => i.title);
-  assert.strictEqual(titles.join(' | '), 'Reliance Industries wins new order', 'only relevant headlines kept');
+  const titles = res.items.map((i) => i.title).sort();
+  assert.strictEqual(titles.join(' | '), 'RIL to invest in green energy | Reliance Industries wins new order');
+});
+
+test('never falls back to unrelated headlines when nothing matches', async () => {
+  const cache = {};
+  const none = `<rss><channel>
+    <item><title>Sensex ends 300 points higher</title><link>https://example.com/1</link></item>
+    <item><title>Gold hits record high</title><link>https://example.com/2</link></item>
+  </channel></rss>`;
+  const sb = loadNews(cache, async () => none);
+  const res = await sb.loadNews({ sym: 'RELIANCE', name: 'Reliance Industries' });
+  assert.strictEqual(res.items.length, 0, 'an empty card beats random news');
+  assert.ok(res.empty);
 });
 
 test('an empty result is cached briefly, not forever', async () => {
@@ -169,6 +181,31 @@ test('an empty result is cached briefly, not forever', async () => {
   assert.strictEqual(res.items.length, 0);
   assert.ok(res.empty, 'marked as a miss');
   assert.strictEqual(cache['news:X'].v.empty, true);
+});
+
+console.log('\nrelevance rules');
+
+test('matches full name, all key words, ticker and press short forms', () => {
+  const { newsRelevant } = loadNews();
+  const cases = [
+    [{ sym: 'RELIANCE', name: 'Reliance Industries' }, 'Reliance Industries shares rise 2% after Q2 results', true],
+    [{ sym: 'RELIANCE', name: 'Reliance Industries' }, 'RIL to invest in green energy', true],
+    [{ sym: 'RELIANCE', name: 'Reliance Industries' }, 'Sensex ends 300 points higher', false],
+    [{ sym: 'RELIANCE', name: 'Reliance Industries' }, 'Tata Steel wins order', false],
+    [{ sym: 'POWERGRID', name: 'Power Grid Corporation of India' }, 'Power Grid wins transmission order', true],
+    [{ sym: 'POWERGRID', name: 'Power Grid Corporation of India' }, 'Tata Power shares jump', false],
+    [{ sym: 'LT', name: 'Larsen & Toubro' }, 'L&T bags metro contract', true],
+    [{ sym: 'LT', name: 'Larsen & Toubro' }, 'Larsen & Toubro Q2 profit up', true],
+    [{ sym: 'M&M', name: 'Mahindra & Mahindra' }, 'M&M reports strong SUV sales', true],
+    [{ sym: 'ITC', name: 'ITC' }, 'ITC Q2 profit rises 8%', true],
+    [{ sym: 'ITC', name: 'ITC' }, 'Manchester United signs deal', false],
+    [{ sym: 'HDFCBANK', name: 'HDFC Bank' }, 'HDFC Bank Q2 net profit up', true],
+    [{ sym: 'HDFCBANK', name: 'HDFC Bank' }, 'ICICI Bank Q2 net profit up', false]
+  ];
+  cases.forEach(function (c) {
+    const got = newsRelevant([{ title: c[1] }], c[0]).length === 1;
+    assert.strictEqual(got, c[2], JSON.stringify(c[1]) + ' should be ' + (c[2] ? 'kept' : 'dropped'));
+  });
 });
 
 console.log(failures ? '\n' + failures + ' test(s) failed\n' : '\nAll tests passed\n');

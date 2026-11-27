@@ -40,6 +40,9 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Run tests
+        run: npm test
+
       - name: Build Windows .exe
         shell: pwsh
         run: |
@@ -57,7 +60,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Noobs-Screener-win
-          path: dist/*.exe
+          path: |
+            dist/*.exe
+            dist/*.zip
           if-no-files-found: error
 
       - name: Upload .exe to Release
@@ -69,6 +74,8 @@ jobs:
           # Tag push -> that tag. Branch push / manual run -> chosen tag
           # (defaults to the existing "noobsscreener" Release).
           tag_name: ${{ github.ref_type == 'tag' && github.ref_name || inputs.release_tag || 'noobsscreener' }}
-          files: dist/*.exe
+          files: |
+            dist/*.exe
+            dist/*.zip
           fail_on_unmatched_files: true
           # Keep an existing release's title/notes untouched.

@@ -101,6 +101,27 @@ Because the cache survives restarts, only the first launch of a day fetches data
 later launches render straight from disk. **Refresh** clears the cache only — your
 watchlist is never touched.
 
+## Speed
+
+- **Only the stock you open is fetched at startup.** The 160-stock screener load waits
+  until the screener card scrolls into view (or you touch its filters).
+- Cached stocks paint straight from disk; the cache survives restarts.
+- The bundler window is shown on `ready-to-show` (no white flash), and the desktop
+  build drops the `backdrop-filter` blur on the sticky bars — the single most
+  expensive thing to repaint on Windows.
+- Company data and price history for the open stock are fetched in parallel.
+
+**Pick the download that suits your startup-time preference:**
+
+| Build | Startup | Why |
+|---|---|---|
+| `Noobs-Screener-Setup-*.exe` | fastest after first launch | installed normally, nothing to unpack |
+| `Noobs-Screener-*-win.zip` | fast | unzip once, run `Noobs Screener.exe` — no per-launch unpacking |
+| `Noobs-Screener-Portable-*.exe` | slowest | the portable launcher unpacks ~250 MB to `%TEMP%` **every launch** |
+
+This is why the portable `.exe` feels slow to open: it is unpacking itself each time.
+Use the installer or the zip for everyday use; keep the portable exe for USB sticks.
+
 ## News (free, no API key)
 
 Each stock page has a **Latest News** card with recent headlines about that company.
@@ -112,9 +133,15 @@ Sources are public RSS feeds, tried in order until one returns results:
 | Bing News | `www.bing.com/news/search?format=RSS` |
 | Yahoo Finance | `feeds.finance.yahoo.com/rss/2.0/headline?s=<ticker>` |
 
-Nothing to sign up for and no quota. Headlines are filtered to ones that actually
-mention the company, cached for 45 minutes (misses for 5), and clicking one opens it
-in your system browser — links never navigate the app window.
+Nothing to sign up for and no quota.
+
+**Only related news is shown.** A headline is kept only if it contains the company's
+full name, every key word of the name (`Power Grid` -> both words), the ticker, or a
+known press short form (`RIL`, `L&T`, `HUL`, `M&M`, `SBI`, ...). If nothing matches, the
+card says so — it never fills up with generic market news.
+
+Headlines are cached for 45 minutes (misses for 5), and clicking one opens it in your
+system browser — links never navigate the app window.
 
 ## How the data fetching works
 
