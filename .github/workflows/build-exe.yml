@@ -67,6 +67,6 @@ jobs:
           # Tag push -> that tag. Branch push / manual run -> chosen tag
           # (defaults to the existing "noobsscreener" Release).
           tag_name: ${{ github.ref_type == 'tag' && github.ref_name || inputs.release_tag || 'noobsscreener' }}
-          name: ${{ github.ref_type == 'tag' && github.ref_name || inputs.release_tag || 'noobsscreener' }}
           files: dist/*.exe
           fail_on_unmatched_files: true
+          # Keep an existing release's title/notes untouched.

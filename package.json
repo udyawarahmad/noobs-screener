@@ -2,7 +2,7 @@
   "name": "noobs-screener",
   "productName": "Noobs Screener",
   "version": "1.0.0",
-  "description": "Noobs Screener \u2014 one-page Indian stock screener (live prices, financials, ratios, shareholding).",
+  "description": "Noobs Screener — one-page Indian stock screener (live prices, financials, ratios, shareholding).",
   "main": "main.js",
   "author": "",
   "license": "MIT",
@@ -29,7 +29,8 @@
       "target": [
         "nsis",
         "portable"
-      ]
+      ],
+      "artifactName": "Noobs-Screener-Setup-${version}.exe"
     },
     "nsis": {
       "oneClick": false,

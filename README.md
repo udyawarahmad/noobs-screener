@@ -51,11 +51,27 @@ Find the installer + portable exe in `dist/`:
 
 ## Let GitHub build the .exe for you (easiest)
 
-1. Create a repo on GitHub (e.g. `noobs-screener`), push this folder to it.
-2. Go to the repo's **Actions** tab → **Build Windows EXE** → **Run workflow**
-   (or push a tag like `v1.0.0` — a build starts automatically).
-3. When it finishes, download **Noobs-Screener-win** from the run's **Artifacts**.
-   The `.exe` files are inside the zip.
+The workflow in `.github/workflows/build-exe.yml` builds both `.exe` files on a
+Windows runner and attaches them to a **Release** — nothing to install locally.
+
+1. Bump `version` in `package.json` if you're cutting a new version.
+2. Push a tag — the build starts automatically and uploads to that tag's release:
+
+   ```bash
+   npm version patch        # or minor / major
+   git push --follow-tags
+   ```
+
+   (Or run **Actions → Build Windows EXE → Run workflow** and type the release tag.)
+3. When it finishes, the files are on the repo's **Releases** page:
+
+   - `Noobs-Screener-Setup-<version>.exe` — installer (Start-menu shortcut, uninstaller)
+   - `Noobs-Screener-Portable-<version>.exe` — single file, runs without installing
+
+   The same files are also kept as the **Noobs-Screener-win** artifact on the run.
+
+The `.exe` is **not code-signed**, so Windows SmartScreen may show
+"Windows protected your PC" on first launch — click **More info → Run anyway**.
 
 ## Host it as a website (optional)
 
