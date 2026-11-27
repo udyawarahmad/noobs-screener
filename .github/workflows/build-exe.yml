@@ -61,7 +61,9 @@ jobs:
           if-no-files-found: error
 
       - name: Upload .exe to Release
-        if: github.event_name == 'push' || inputs.release_tag != ''
+        # Tag pushes publish; a plain branch run only produces the artifact above,
+        # so work-in-progress builds never touch a released version.
+        if: github.ref_type == 'tag' || inputs.release_tag != ''
         uses: softprops/action-gh-release@v2
         with:
           # Tag push -> that tag. Branch push / manual run -> chosen tag

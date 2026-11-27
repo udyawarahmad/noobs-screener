@@ -1,14 +1,15 @@
 {
   "name": "noobs-screener",
   "productName": "Noobs Screener",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Noobs Screener — one-page Indian stock screener (live prices, financials, ratios, shareholding).",
   "main": "main.js",
   "author": "",
   "license": "MIT",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --win nsis portable --publish never"
+    "dist": "electron-builder --win nsis portable --publish never",
+    "test": "node test/persistence.test.js"
   },
   "devDependencies": {
     "electron": "^33.2.0",
@@ -19,6 +20,7 @@
     "productName": "Noobs Screener",
     "files": [
       "main.js",
+      "main-store.js",
       "preload.js",
       "renderer/**/*",
       "assets/**/*",

@@ -79,14 +79,37 @@ Upload the contents of `renderer/` to GitHub Pages / Netlify / Vercel / any stat
 host. No build step — it runs as-is. (On the open web, screener.in pages load through
 a public CORS-proxy fallback, so the desktop app is snappier and more reliable.)
 
+## Where your data is stored
+
+The watchlist, theme and the live-data cache are **written to disk**, not to the
+browser's localStorage (which is capped at ~5 MB and was the reason watchlists
+disappeared after a restart in 1.0.0).
+
+| Build | Location |
+|---|---|
+| Portable `.exe` | `Noobs-Screener-Data\` next to the `.exe` |
+| Installed app | `%APPDATA%\Noobs Screener\` |
+| Plain website | browser localStorage |
+
+Inside that folder:
+
+- `state.json` — watchlist and theme (small, always writable)
+- `cache/` — one JSON file per cached stock (last 7 days of financials, 1 day of
+  price history). Safe to delete; the app re-downloads what it needs.
+
+Because the cache survives restarts, only the first launch of a day fetches data;
+later launches render straight from disk. **Refresh** clears the cache only — your
+watchlist is never touched.
+
 ## How the data fetching works
 
 - `renderer/live.js` → `httpText` / `httpJSON` try, in order:
   1. `window.electronFetch` (desktop app — main process, no CORS limits),
   2. direct `fetch` (works for Yahoo everywhere),
   3. a public CORS-proxy fallback (so the plain-website version still works).
-- Company pages are cached in `localStorage` for 7 days, price history for 1 day —
-  repeat visits are instant and easy on the source sites.
+- Company pages are cached for 7 days, price history for 1 day — repeat visits are
+  instant and easy on the source sites. In the desktop app the cache lives in
+  `cache/` on disk (see above), so it survives restarts.
 
 ## Versioning
 

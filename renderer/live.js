@@ -7,30 +7,17 @@
 var LIVE_TTL_CO = 7 * 24 * 3600 * 1000;   // company financials: 7 days
 var LIVE_TTL_CH = 24 * 3600 * 1000;       // price history: 1 day
 
-function _ck(k) { return 'screenone3:' + k; }
+/* Cache lives in PStore (renderer/store.js): files on disk in the desktop app,
+   localStorage on the plain website. Returning {t, v} keeps the call sites as-is. */
 function liveCacheGet(k) {
-  try {
-    var raw = localStorage.getItem(_ck(k));
-    if (!raw) return null;
-    return JSON.parse(raw);
-  } catch (e) { return null; }
+  try { return PStore.cacheGet(k); } catch (e) { return null; }
 }
 function liveCacheSet(k, v) {
-  try { localStorage.setItem(_ck(k), JSON.stringify({ t: Date.now(), v: v })); }
-  catch (e) {
-    // quota full: drop chart caches, retry once
-    try {
-      Object.keys(localStorage).filter(function (x) { return x.indexOf('screenone3:ch:') === 0; })
-        .forEach(function (x) { localStorage.removeItem(x); });
-      localStorage.setItem(_ck(k), JSON.stringify({ t: Date.now(), v: v }));
-    } catch (e2) {}
-  }
+  try { return PStore.cacheSet(k, v); } catch (e) { return false; }
 }
+/* Clears cached price/financial data ONLY — never the watchlist or theme. */
 function liveCacheClear() {
-  try {
-    Object.keys(localStorage).filter(function (x) { return x.indexOf('screenone') === 0; })
-      .forEach(function (x) { localStorage.removeItem(x); });
-  } catch (e) {}
+  try { PStore.cacheClear(); } catch (e) {}
 }
 
 function _getSF() {

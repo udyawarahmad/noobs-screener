@@ -6,8 +6,12 @@ var S = {
   sym: 'RELIANCE', range: '1Y', finMode: 'sales', theme: 'light', wl: [],
   mode: 'stock', index: null,  scr: { q: '', sector: 'ALL', mcapMin: 0, peMax: 1000, roeMin: -100, roceMin: -100, dyMin: 0, deMax: 99, gsMin: -100, gpMin: -100, opmMin: 0, sort: 'mcap', dir: -1, page: 0, onlyWL: false }
 };
-try { S.wl = JSON.parse(localStorage.getItem('screenone_wl') || '[]'); } catch (e) { S.wl = []; }
-try { var _t = localStorage.getItem('screenone_theme'); if (_t) S.theme = _t; } catch (e) {}
+try {
+  S.wl = JSON.parse(PStore.getState('screenone_wl', '[]') || '[]');
+  if (!Array.isArray(S.wl)) S.wl = [];
+  S.wl = S.wl.filter(function (x) { return typeof x === 'string' && x; });
+} catch (e) { S.wl = []; }
+try { var _t = PStore.getState('screenone_theme', ''); if (_t) S.theme = _t; } catch (e) {}
 
 var CO = {};   // sym -> parsed company (memory)
 var CH = {};   // yahoo symbol -> chart (memory)
@@ -33,7 +37,14 @@ function inr1(v) { if (v == null || isNaN(v)) return '–'; return Number(v).toL
 function inr2(v) { if (v == null || isNaN(v)) return '–'; return Number(v).toLocaleString('en-IN', { maximumFractionDigits: 2, minimumFractionDigits: 2 }); }
 function pct1(v) { if (v == null || isNaN(v)) return '–'; return (v > 0 ? '+' : '') + Number(v).toFixed(1) + '%'; }
 function numCls(v) { return v > 0 ? 'pos' : (v < 0 ? 'neg' : ''); }
-function saveWL() { try { localStorage.setItem('screenone_wl', JSON.stringify(S.wl)); } catch (e) {} }
+function saveWL() { try { PStore.setState('screenone_wl', JSON.stringify(S.wl)); } catch (e) {} }
+/* Re-render the screener table at most a few times a second: during the bulk
+   load each arriving stock used to repaint all ~160 rows. */
+var _scrTimer = null;
+function renderScreenerSoon() {
+  if (_scrTimer) return;
+  _scrTimer = setTimeout(function () { _scrTimer = null; renderScreener(); }, 300);
+}
 function skel(h) { return '<div class="skel" style="height:' + (h || 18) + 'px"></div>'; }
 
 /* ---------------- data access ---------------- */
@@ -957,7 +968,7 @@ async function loadAllData() {
   }, function (d) {
     doneN = d;
     progress(2 + 68 * doneN / Math.max(total, 1), 'Loading live financials… ' + doneN + '/' + total);
-    renderScreener();
+    renderScreenerSoon();
   });
   // price history for all (fast, cached daily)
   var doneC = 0, failC = 0;
@@ -968,7 +979,7 @@ async function loadAllData() {
   }, function (d) {
     doneC = d;
     progress(70 + 30 * doneC / syms.length, 'Loading price history… ' + doneC + '/' + syms.length);
-    renderScreener();
+    renderScreenerSoon();
   });
   var badNames = syms.filter(function (s) { return !CO[s]; });
   if (badNames.length) {
@@ -1009,7 +1020,7 @@ function toggleWL(sym) {
 function renderWatchlist() {
   $('watchCount').textContent = S.wl.length ? S.wl.length + ' watching' : '';
   var box = $('watchlistRow');
-  if (!S.wl.length) { box.innerHTML = '<p class="muted">No stocks yet — tap ☆ on any stock or in the screener to track it here. Saved in this browser.</p>'; return; }
+  if (!S.wl.length) { box.innerHTML = '<p class="muted">No stocks yet — tap ☆ on any stock or in the screener to track it here. Saved automatically, and kept after you close the app.</p>'; return; }
   box.innerHTML = S.wl.map(function (sym) {
     var ch = chartOf(sym), C = CO[sym] || cachedCompany(sym);
     var nm = C ? C.name : nameOf(sym);
@@ -1085,7 +1096,7 @@ function exportStock() {
 function setTheme(t) {
   S.theme = t;
   document.documentElement.setAttribute('data-theme', t);
-  try { localStorage.setItem('screenone_theme', t); } catch (e) {}
+  try { PStore.setState('screenone_theme', t); } catch (e) {}
   $('themeBtn').textContent = t === 'dark' ? 'Light' : 'Dark';
   var C = CO[S.sym] || cachedCompany(S.sym);
   if (C && S.mode === 'stock') { renderAll(C, chartOf(S.sym)); }
@@ -1098,7 +1109,9 @@ function init() {
   renderScreener(); renderWatchlist();
   showSkeletons();
   loadAndRender(S.sym);
-  loadAllData();
+  // Bulk load (160 companies + price history) runs after the first paint so the
+  // window is usable immediately; with a warm cache it is a no-op.
+  setTimeout(function () { loadAllData(); }, 700);
   var si = $('searchInput');
   si.addEventListener('input', function () { renderSearchDrop(si.value); });
   si.addEventListener('focus', function () { renderSearchDrop(si.value); });
