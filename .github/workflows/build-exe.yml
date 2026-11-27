@@ -41,7 +41,15 @@ jobs:
         run: npm install
 
       - name: Run tests
-        run: npm test
+        shell: pwsh
+        run: |
+          npm test 2>&1 | Tee-Object -FilePath test.log
+          if ($LASTEXITCODE -ne 0) {
+            Get-Content test.log | Select-String -Pattern 'FAIL|Error|assert|Error:' |
+              Select-Object -Last 25 | ForEach-Object { Write-Host "::error::$($_.Line)" }
+            Get-Content test.log -Tail 15 | ForEach-Object { Write-Host "::error::$($_)" }
+            exit 1
+          }
 
       - name: Build Windows .exe
         shell: pwsh

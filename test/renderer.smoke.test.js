@@ -8,6 +8,7 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { pathToFileURL } = require('url');
 const { JSDOM, VirtualConsole } = require('jsdom');
 const { createStore } = require('../main-store');
 
@@ -48,7 +49,8 @@ async function boot(opts) {
 
   const html = fs.readFileSync(path.join(ROOT, 'renderer/index.html'), 'utf8');
   const dom = new JSDOM(html, {
-    url: 'file://' + path.join(ROOT, 'renderer/index.html'),
+    // pathToFileURL: on Windows "file://C:\..." is not a valid URL
+    url: pathToFileURL(path.join(ROOT, 'renderer/index.html')).href,
     runScripts: 'dangerously',
     resources: 'usable',
     pretendToBeVisual: true,
