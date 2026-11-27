@@ -8,7 +8,7 @@
   "license": "MIT",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --win nsis portable --publish never",
+    "dist": "electron-builder --win nsis portable zip --publish never",
     "test": "node test/persistence.test.js && node test/news.test.js && node test/renderer.smoke.test.js"
   },
   "devDependencies": {
