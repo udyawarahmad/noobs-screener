@@ -1,0 +1,59 @@
+name: Build Windows EXE
+
+# Builds the Windows .exe (installer + portable) with electron-builder on a
+# Windows runner, then uploads the .exe files to the GitHub Release.
+#
+# Run it manually: Actions tab -> "Build Windows EXE" -> Run workflow.
+# Or push a tag (v* or noobsscreener) and the build starts automatically.
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag to upload the .exe to (leave blank to only keep the Actions artifact)"
+        required: false
+        default: "noobsscreener"
+  push:
+    tags:
+      - "v*"
+      - "noobsscreener"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build Windows .exe
+        run: npm run dist
+        env:
+          # No code signing — the .exe is unsigned (SmartScreen may warn once).
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Noobs-Screener-win
+          path: dist/*.exe
+          if-no-files-found: error
+
+      - name: Upload .exe to Release
+        if: github.event_name == 'push' || inputs.release_tag != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event_name == 'push' && github.ref_name || inputs.release_tag }}
+          name: ${{ github.event_name == 'push' && github.ref_name || inputs.release_tag }}
+          files: dist/*.exe
+          fail_on_unmatched_files: true
