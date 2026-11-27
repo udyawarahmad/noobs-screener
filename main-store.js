@@ -190,4 +190,24 @@ function createStore(dataDir) {
   };
 }
 
-module.exports = { createStore: createStore, fileNameFor: fileNameFor };
+/* 1.0.0 kept everything in %APPDATA%\<app name>, even for the portable build.
+   When 1.0.1 moves the profile next to the .exe, bring the old localStorage
+   along (once) so the renderer can import the previous watchlist from it. */
+function copyLegacyLocalStorage(fromProfileDir, toProfileDir) {
+  try {
+    if (path.resolve(fromProfileDir) === path.resolve(toProfileDir)) return false;
+    const src = path.join(fromProfileDir, 'Local Storage');
+    const dst = path.join(toProfileDir, 'Local Storage');
+    if (!fs.existsSync(src) || fs.existsSync(dst)) return false;
+    fs.cpSync(src, dst, { recursive: true });
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+module.exports = {
+  createStore: createStore,
+  fileNameFor: fileNameFor,
+  copyLegacyLocalStorage: copyLegacyLocalStorage
+};

@@ -6,7 +6,7 @@
 const { app, BrowserWindow, ipcMain, net } = require('electron');
 const fs = require('fs');
 const path = require('path');
-const { createStore } = require('./main-store');
+const { createStore, copyLegacyLocalStorage } = require('./main-store');
 
 /* Portable build: keep app data next to the .exe, so the watchlist survives
    restarts and travels with the file. Read-only location -> fall back to the
@@ -20,6 +20,8 @@ const { createStore } = require('./main-store');
     fs.accessSync(dir, fs.constants.W_OK);
     app.setPath('userData', dir);
     app.setPath('sessionData', dir);
+    // bring the 1.0.0 profile over so its watchlist can be imported
+    copyLegacyLocalStorage(path.join(app.getPath('appData'), app.getName()), dir);
   } catch (e) { /* keep the default location */ }
 })();
 

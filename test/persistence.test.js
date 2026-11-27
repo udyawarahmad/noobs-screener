@@ -8,7 +8,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const vm = require('vm');
-const { createStore, fileNameFor } = require('../main-store');
+const { createStore, fileNameFor, copyLegacyLocalStorage } = require('../main-store');
 
 let failures = 0;
 function test(name, fn) {
@@ -132,6 +132,17 @@ test('persists a full universe of price history (several times the localStorage 
   assert.ok(bytes > 12 * 1024 * 1024, 'wrote only ' + bytes + ' bytes');
   const b = createStore(dir);
   assert.ok(b.cacheGet('ch3:SYM159.NS').v.pts.length === 1250);
+});
+
+test('portable 1.0.1 imports the 1.0.0 profile from %APPDATA% once', () => {
+  const legacy = tmpDir();
+  fs.mkdirSync(path.join(legacy, 'Local Storage', 'leveldb'), { recursive: true });
+  fs.writeFileSync(path.join(legacy, 'Local Storage', 'leveldb', '000001.log'), 'old-watchlist');
+  const fresh = tmpDir();
+  assert.strictEqual(copyLegacyLocalStorage(legacy, fresh), true);
+  assert.strictEqual(fs.readFileSync(path.join(fresh, 'Local Storage', 'leveldb', '000001.log'), 'utf8'), 'old-watchlist');
+  assert.strictEqual(copyLegacyLocalStorage(legacy, fresh), false, 'must not copy twice');
+  assert.strictEqual(copyLegacyLocalStorage(legacy, legacy), false, 'same dir is a no-op');
 });
 
 console.log('\nrenderer PStore');
