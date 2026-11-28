@@ -6,7 +6,7 @@
 
 **A one-page Indian stock screener that runs as a Windows desktop app *or* a static website.**
 
-Live NSE prices · financials · ratios · shareholding · peer comparison · company news · valuation history · screen backtesting
+Live NSE prices · financials · ratios · shareholding · peer comparison · company news · valuation history
 
 [![Build Windows EXE](https://github.com/udyawarahmad/noobs-screener/actions/workflows/build-exe.yml/badge.svg)](https://github.com/udyawarahmad/noobs-screener/actions/workflows/build-exe.yml)
 [![Latest release](https://img.shields.io/github/v/release/udyawarahmad/noobs-screener?label=release)](https://github.com/udyawarahmad/noobs-screener/releases/latest)
@@ -26,7 +26,7 @@ Live NSE prices · financials · ratios · shareholding · peer comparison · co
 - [How the data works](#how-the-data-works)
 - [Caching](#caching)
 - [Where your data is stored](#where-your-data-is-stored)
-- [The Time Machine](#the-time-machine-valuation-history--backtesting)
+- [The Time Machine](#the-time-machine-valuation-history)
 - [The stock screener](#the-stock-screener)
 - [News](#news-free-and-keyless)
 - [Performance notes](#performance-notes)
@@ -47,7 +47,7 @@ Live NSE prices · financials · ratios · shareholding · peer comparison · co
 
 Noobs Screener puts everything you would normally open five browser tabs for onto **one page** per stock:
 
-prices and charts, annual and quarterly financials, balance sheet, cash flow, ratios, shareholding, peers, pros/cons, filings, and news — plus a screener that filters a curated NSE universe on live fundamentals, a valuation-history card, and a backtester for your screens.
+prices and charts, annual and quarterly financials, balance sheet, cash flow, ratios, shareholding, peers, pros/cons, filings, and news — plus a screener that filters a curated NSE universe on live fundamentals, and a valuation-history card.
 
 It is a **plain static web app** (`renderer/`) wrapped in a thin **Electron** shell (`main.js`). There is no build step, no bundler, no framework, and no backend you have to run or pay for. The same `renderer/` folder works three ways:
 
@@ -78,14 +78,14 @@ It is a **plain static web app** (`renderer/`) wrapped in a thin **Electron** sh
 | **Cash Flows** | Operating, investing and financing movement |
 | **Ratios** | Year-wise ratios as published |
 | **Shareholding** | Promoter / FII / DII / public / others across the latest quarters, with a stacked chart |
-| **Filings & Links** | Company site, screener.in page, NSE quote, BSE quote, Yahoo quote — all open in your real browser |
+| **Filings & Links** | Company site, NSE quote, BSE quote, Yahoo quote — all open in your real browser |
 | **About** | Company profile plus quick facts (sector, promoter holding, listed-on links) |
 
 ### Market-wide
 
 - **Index strip** — NIFTY 50, SENSEX, NIFTY BANK, USD/INR and Gold, live. Click any of them to load its chart and stats into the Overview.
-- **Universal search** — the curated universe appears instantly; anything else is looked up live on screener.in's search API, so you can open *any* listed Indian company, not just the 163 in the list.
-- **Screener** — 11 filters, 13 sortable columns, 7 one-click presets, a human-readable query preview, CSV export, a backtester — and **Share view**, which copies a link (`?q=…`) that reopens exactly this filtered, sorted screen on any device.
+- **Universal search** — the curated universe appears instantly; anything else is looked up live via the universal search API, so you can open *any* listed Indian company, not just the 163 in the list.
+- **Screener** — 11 filters, 13 sortable columns, 7 one-click presets, a human-readable query preview, CSV export, and **Share view**, which copies a link (`?q=…`) that reopens exactly this filtered, sorted screen on any device.
 - **Watchlist** — star any stock (including ones you found via universal search); it survives restarts.
 - **Light / dark theme**, remembered between sessions.
 - **PWA install** — the website build can be added to a phone's home screen, runs full-screen, and opens **offline** (a tiny service worker keeps the shell; data comes from the local cache).
@@ -127,7 +127,7 @@ The `renderer/` folder is the whole web app. Serve it with anything:
 npx serve renderer        # or: python3 -m http.server -d renderer 8080
 ```
 
-Open the URL and it works. On the open web, screener.in pages come through a public CORS proxy (see [How the data works](#how-the-data-works)), so the desktop build is snappier and more reliable — but the website needs no install.
+Open the URL and it works. On the open web, financials pages come through a public CORS proxy (see [How the data works](#how-the-data-works)), so the desktop build is snappier and more reliable — but the website needs no install.
 
 ---
 
@@ -171,16 +171,16 @@ noobs-screener/
 │   ├── theme.css               Design system: CSS custom properties, light + dark, responsive
 │   ├── store.js                PStore: disk bridge on desktop, localStorage on the web
 │   ├── universe.js             The curated universe + sector list + symbol helpers
-│   ├── live.js                 Fetch layer, Yahoo price history, screener.in parsers, cache TTLs
+│   ├── live.js                 Fetch layer, Yahoo price history, financials parsers, cache TTLs
 │   ├── news.js                 RSS feeds, XML parsing, strict relevance matching
-│   ├── valuation.js            Valuation history + backtest maths (pure functions)
+│   ├── valuation.js            Valuation history (pure functions)
 │   ├── app.js                  Rendering, charts on canvas, screener, watchlist, exports, init
 │   ├── manifest.webmanifest    PWA manifest
 │   └── icons/                  PWA icons (192, 512)
 ├── test/
 │   ├── persistence.test.js     Disk store + renderer fallback + the old quota bug (13 tests)
 │   ├── news.test.js            RSS parsing, feed fallback, relevance rules (12 tests)
-│   ├── valuation.test.js       Valuation + backtest, incl. fuzzing (22 tests)
+│   ├── valuation.test.js       Valuation history, incl. fuzzing (17 tests)
 │   └── renderer.smoke.test.js  Boots the real index.html in jsdom (15 tests)
 ├── .github/workflows/
 │   └── build-exe.yml           Windows CI: test → build → upload artifacts + Release assets
@@ -199,8 +199,8 @@ Two sources, both public, both parsed live in your browser:
 | Data | Source | Notes |
 |---|---|---|
 | Prices, OHLCV, 52-week range, indices | **Yahoo Finance** chart API | 5 years of daily closes, split/bonus adjusted |
-| Financials, ratios, shareholding, peers, pros/cons, profile | **screener.in** company pages | Parsed from HTML with `DOMParser`; consolidated figures preferred, standalone as fallback |
-| Universal search | screener.in search API | Lets you open companies outside the curated list |
+| Financials, ratios, shareholding, peers, pros/cons, profile | Public company pages | Parsed from HTML with `DOMParser`; consolidated figures preferred, standalone as fallback |
+| Universal search | The search API behind the picker | Lets you open companies outside the curated list |
 | News | Google News / Bing News / Yahoo Finance RSS | Free, keyless |
 
 ### The three-tier fetch strategy
@@ -208,14 +208,14 @@ Two sources, both public, both parsed live in your browser:
 Every request goes through `httpText()` / `httpJSON()` in `renderer/live.js`, which tries in order and stops at the first success:
 
 1. **`window.electronFetch`** — in the desktop app, the request is made by the Electron **main process** via `net.fetch`. Node has no CORS model, so this always works.
-2. **Direct `fetch`** — works everywhere for Yahoo (it sends permissive CORS headers), and for screener.in when the browser/extension allows it.
+2. **Direct `fetch`** — works everywhere for Yahoo (it sends permissive CORS headers), and for financials pages when the browser/extension allows it.
 3. **Public CORS proxy** — `https://corsproxy.io/?url=…`, so the plain-website build still functions.
 
 Each attempt is wrapped in a 30-second `AbortController` timeout, so one slow host can never stall the page.
 
 ### Parser resilience
 
-The screener.in parser does not assume a fixed layout:
+The financials parser does not assume a fixed layout:
 
 - Rows are found by **label** with fallbacks (`Sales` / `Total Income` / `Revenue` / `Interest Earned`; `Borrowings` **and** the singular `Borrowing` that banks use).
 - Columns are matched by **label**, not position, and sorted by date — so it works whether the source lists oldest-first or newest-first.
@@ -250,7 +250,7 @@ Price *history* is fetched once a day; the price you are *looking at* refreshes 
 
 Clever bits worth knowing:
 
-- **"Live" means live.** A window left open from 9:30 to 15:30 keeps ticking: the hero, index strip and watchlist re-confirm their quotes every 2 minutes during market hours (and the freshness stamp says exactly *when* — no bare "live" claims). Screener rows and backtests stay on the 1-day history cache so they never trigger a 163-stock refetch storm.
+- **"Live" means live.** A window left open from 9:30 to 15:30 keeps ticking: the hero, index strip and watchlist re-confirm their quotes every 2 minutes during market hours (and the freshness stamp says exactly *when* — no bare "live" claims). Screener rows stay on the 1-day history cache so they never trigger a 163-stock refetch storm.
 - **Refresh** clears the *data cache only*. Your watchlist and theme are never touched.
 - The news empty-state is cached briefly on purpose — otherwise the card would hammer three feeds on every open.
 - Legacy cache keys keep the old `screenone` prefix so watchlists from earlier versions keep working.
@@ -291,11 +291,11 @@ The website build uses `localStorage` with the same API (`PStore`), so `app.js` 
 
 ---
 
-## The Time Machine: valuation history + backtesting
+## The Time Machine: valuation history
 
-Two things most free Indian screeners don't do. Both are computed from data the app already has — no extra keys, no backend. The maths lives in `renderer/valuation.js` as pure functions, which is why it can be tested numerically.
+One thing most free Indian screeners don't do. It is computed from data the app already has — no extra keys, no backend. The maths lives in `renderer/valuation.js` as pure functions, which is why it can be tested numerically.
 
-### 1. Is this stock cheap *for its own history*?
+### Is this stock cheap *for its own history*?
 
 Every stock page shows P/E and P/B against that stock's own multi-year range:
 
@@ -304,27 +304,12 @@ Every stock page shows P/E and P/B against that stock's own multi-year range:
 - **A chart** of the full daily series with those bands drawn on it.
 - A clear "not enough history" message instead of invented numbers.
 
-### 2. Would your screen have actually worked?
-
-**Backtest this screen** re-runs your *current* filters as of 1, 2 or 3 years ago, equal-weights everything that passed, holds to today, and reports:
-
-| Metric | Meaning |
-|---|---|
-| Stocks passing | how many names the screen selected, out of the universe |
-| CAGR | the equal-weight portfolio's annualised return |
-| NIFTY CAGR | the same window on the NIFTY 50 (`^NSEI`) |
-| vs NIFTY | alpha in percentage points |
-| Max drawdown | worst peak-to-trough of the equity curve |
-| Hit rate | share of picks that ended positive |
-| Picks table | the best 12 names with their return, P/E *then* and ROE *then* — click a row to open the stock |
-
-Results clear themselves the moment you change a filter, so you never read a stale backtest.
 
 ### How the numbers are produced
 
 | Input | Source / rule |
 |---|---|
-| EPS, net profit, sales, book value | screener.in annual statements (~10 years) |
+| EPS, net profit, sales, book value | Published annual statements (~10 years) |
 | Price series | Yahoo daily closes, split/bonus adjusted |
 | "Known at the time" | a fiscal year counts from **year end + 90 days**, approximating Indian filing dates |
 | Per-share history | *today's* share count (equity capital ÷ face value) — the same basis as adjusted prices |
@@ -335,18 +320,15 @@ Results clear themselves the moment you change a filter, so you never read a sta
 | Rounding guard | the daily series is rescaled to meet today's published multiple only when the factor is plausible (0.5×–2×); otherwise left raw |
 | Percentiles | need ≥ 20 valid samples; otherwise the card says so |
 
-The charts and maths are validated against published screener.in figures, not just internal consistency — the test suite pins real numbers for TCS (book value ₹329, P/B 7.82×, EPS timeline 2015 ₹50.68 → TTM ₹142.64) and HDFC Bank (book value ₹391, P/E 16.48 vs a published 16.4).
+The charts and maths are validated against published figures, not just internal consistency — the test suite pins real numbers for TCS (book value ₹329, P/B 7.82×, EPS timeline 2015 ₹50.68 → TTM ₹142.64) and HDFC Bank (book value ₹391, P/E 16.48 vs a published 16.4).
 
 ### Honest limits
 
 All of these are stated in the UI too:
 
-- **Survivorship bias.** The backtest universe is *today's* curated list. Stocks that were dropped or delisted aren't there. Treat results as a sanity check on a screen, not proof.
-- **Dividends are excluded** from returns.
 - **Market cap uses today's share count**; genuine dilution is not retro-fitted.
 - **~90-day reporting lag** is an approximation; real filing dates vary.
 - **ROCE is not invented.** Banks have no published ROCE row, so the card shows `–`.
-- **5 years is the limit** of the price history; 3-year backtests are the solid ones.
 
 ---
 
@@ -438,7 +420,7 @@ Startup was treated as a feature, not an afterthought:
 
 ## Tests
 
-Eight suites, **108 checks**, all plain Node — no test framework to install beyond `npm install`:
+Eight suites, **103 checks**, all plain Node — no test framework to install beyond `npm install`:
 
 ```bash
 npm install     # once; installs jsdom for the smoke test
@@ -454,9 +436,9 @@ npm test
 | `test/live.test.js` | 11 | quote freshness: NSE market-hours detection (9:15–15:30 IST, Mon–Fri), 2-min/15-min quote TTLs vs the 1-day history TTL, force-refetch, stale fallback when the network dies, BSE symbol fallback, and **NaN/garbage price points being dropped** instead of poisoning the chart |
 | `test/persistence.test.js` | 13 | disk store round-trips, atomic writes, key sanitisation and collisions, cache trimming, legacy profile migration, watchlist durability with a huge cache, web `localStorage` fallback — plus regressions for the old "watchlist disappeared" quota bug |
 | `test/news.test.js` | 14 | RSS/Atom parsing, CDATA and entity decoding, junk input, feed fallback order, caching, the strict relevance rules (including "never fall back to unrelated headlines"), and alias keys matching real symbols (`BAJAJ-AUTO`, `M&M`, `LTIM`) |
-| `test/valuation.test.js` | 23 | real TCS and HDFC Bank figures, month-end parsing, the 90-day lag, column-order independence, bank "Borrowing" handling, point-in-time fundamentals, CAGR/drawdown **from one equity curve**, and **fuzzing** — 300 random companies and 200 random portfolios are checked to never produce `NaN`, impossible percentages or out-of-range statistics |
+| `test/valuation.test.js` | 17 | real TCS and HDFC Bank figures, month-end parsing, the 90-day lag, column-order independence, bank "Borrowing" handling, point-in-time fundamentals, and **fuzzing** — 300 random companies and 200 random portfolios are checked to never produce `NaN`, impossible percentages or out-of-range statistics |
 | `test/pwa.test.js` | 6 | the offline shell: `sw.js` parses, every precached file exists on disk (one 404 would fail the whole install), `SW_VERSION` tracks `package.json`, registration is http(s)-only, manifest icons exist |
-| `test/renderer.smoke.test.js` | 27 | boots the **real** `index.html` in jsdom with network stubbed to fail, then asserts: no uncaught errors, watchlist painted from disk, starring persists immediately, theme persists, startup does **not** bulk-load the universe, desktop blur is off, news renders safe external links, the valuation card shows P/E, P/B and a percentile chip, a full backtest runs end-to-end — **plus the P0/P1 regression pack** (true YoY quarterly growth, search-dropdown clicks surviving remote appends, symbol escaping / hostile-slug rejection, safe retry buttons, live sector dropdown, CSP meta tag, honest freshness stamp) **and the shareable-link pack** (encode→apply round-trip, `?q=` boots filtered, garbage/hostile payloads rejected without creating elements) |
+| `test/renderer.smoke.test.js` | 28 | boots the **real** `index.html` in jsdom with network stubbed to fail, then asserts: no uncaught errors, watchlist painted from disk, starring persists immediately, theme persists, startup does **not** bulk-load the universe, desktop blur is off, news renders safe external links, the valuation card shows P/E, P/B and a percentile chip, the 3.0.1 pack (removed-feature guard, sticky section nav, no data-source names in the UI, index refreshes not rebuilding tables) — **plus the P0/P1 regression pack** (true YoY quarterly growth, search-dropdown clicks surviving remote appends, symbol escaping / hostile-slug rejection, safe retry buttons, live sector dropdown, CSP meta tag, honest freshness stamp) **and the shareable-link pack** (encode→apply round-trip, `?q=` boots filtered, garbage/hostile payloads rejected without creating elements) |
 
 Individual suites can be run directly:
 
@@ -523,7 +505,7 @@ Copy the contents of `renderer/` to any static host — GitHub Pages, Netlify, V
 - **No build step.** No bundler, no framework, no server code.
 - Prefer HTTPS so the PWA install prompt works on phones.
 - Keep `manifest.webmanifest`, `icons/` and `theme.css` alongside `index.html`.
-- On the open web, screener.in requests fall through to the public CORS proxy. If that proxy is having a bad day, the screener's financial columns show `–` while prices and charts keep working. The desktop build has no such dependency.
+- On the open web, financials requests fall through to the public CORS proxy. If that proxy is having a bad day, the screener's financial columns show `–` while prices and charts keep working. The desktop build has no such dependency.
 
 ---
 
@@ -539,7 +521,7 @@ By design: it unpacks ~250 MB to `%TEMP%` on every launch. Use the installer or 
 Fixed in 1.0.1, and the fix is now tested. Desktop builds write to files, not `localStorage`. If you are on 1.0.0, upgrade. To find out where the current build is storing things, the renderer exposes `PStore.info()` in the devtools console (`{ dir, cacheKeys, cacheBytes }`).
 
 **Financials show but prices don't (or vice versa).**
-The two sources are independent: Yahoo supplies prices, screener.in supplies statements. Failures are cached as misses and the card degrades to `–`. Hit **Refresh** to retry.
+The two sources are independent: Yahoo supplies prices, the financials source supplies statements. Failures are cached as misses and the card degrades to `–`. Hit **Refresh** to retry.
 
 **A company loads but has no ROCE.**
 Usually a bank or NBFC — the source publishes no ROCE row. The app shows `–` rather than inventing a number.
@@ -565,7 +547,6 @@ Delete `cache/` (safe, re-downloaded on demand) — or delete the whole data fol
 - Prices are indicative and may be delayed by the exchange/feed.
 - Market-hours detection is weekday-based (NSE 9:15–15:30 IST, Mon–Fri). Exchange holidays aren't modelled — on a holiday the refresh just fetches identical data.
 - The curated universe is 163 large/mid-caps; universal search covers everything else but bulk screening does not. (The list is hand-maintained — report a missing NIFTY name as an issue and it's a one-line fix; an automated NSE-CSV generator is on the roadmap.)
-- Backtests carry survivorship bias and exclude dividends (see [Honest limits](#honest-limits)).
 - No fundamentals for indices; clicking an index switches to a chart-only view.
 - The `zip`/`portable` targets are Windows-specific. Building for macOS/Linux is not configured.
 
@@ -582,7 +563,7 @@ git push --follow-tags   # pushes the commit and the v* tag
 
 The tag push starts the Windows build, which attaches the installer, portable exe and zip to that tag's Release. Update the release notes afterwards.
 
-Current version: **3.0.0**.
+Current version: **3.0.1**.
 
 ---
 
@@ -590,12 +571,13 @@ Current version: **3.0.0**.
 
 | Tag | Headline |
 |---|---|
-| `noobsscreener` (1.0.0) | First release: one-page screener, Yahoo prices, screener.in fundamentals, watchlist |
+| `noobsscreener` (1.0.0) | First release: one-page screener, Yahoo prices, fundamentals, watchlist |
 | `v1.0.1` | **Watchlist finally survives restarts** — moved from `localStorage` (capped at ~5 MB, so cache writes threw and the watchlist silently stopped saving) to files on disk |
 | `v1.0.2` | Accuracy and bug-fix pass |
 | `v1.1.0` | Per-company news card |
 | `v1.2.0` | Strict news relevance rules, faster startup |
 | `v2.0.0` | **Time Machine** — valuation history with percentile bands, and screen backtesting against NIFTY |
+| `v3.0.1` | **Reliability pass** — section nav now stays pinned below the header while scrolling, backtesting removed, data-source names scrubbed from the UI/docs, index refreshes no longer rebuild the screener table |
 | `v3.0.0` | **Everything ships** — true YoY quarterly growth, quotes that stay live all session (2-min TTL in market hours), injection hardening + strict CSP, fetch-host allowlist, Electron 45 / audit clean, single-instance lock, **shareable screen links** (`?q=`), real offline shell (`sw.js`), CAGR+drawdown from one curve, CI on main/PRs |
 
 ---
@@ -605,10 +587,10 @@ Current version: **3.0.0**.
 | Data | Source | Terms |
 |---|---|---|
 | Prices, OHLCV, indices, FX, gold | Yahoo Finance public chart API | Indicative; may be delayed |
-| Financials, ratios, shareholding, peers, pros/cons, profile, search | [screener.in](https://www.screener.in) | Unofficial; parsed client-side for personal research |
+| Financials, ratios, shareholding, peers, pros/cons, profile, search | Public company pages (unofficial) | Parsed client-side for personal research |
 | News headlines | Google News, Bing News, Yahoo Finance RSS | Public feeds; links open the publisher's page |
 
-This project is not affiliated with NSE, BSE, Yahoo, or screener.in. Data is cached briefly and fetched politely (low concurrency, TTLs, one retry) to keep load on those sites reasonable. If you fork this and point it at a wider audience, consider your own data arrangements.
+This project is not affiliated with NSE, BSE or Yahoo. Data is cached briefly and fetched politely (low concurrency, TTLs, one retry) to keep load on those sites reasonable. If you fork this and point it at a wider audience, consider your own data arrangements.
 
 ---
 

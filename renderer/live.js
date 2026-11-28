@@ -1,6 +1,6 @@
 'use strict';
 /* Noobs Screener live-data layer: real prices/charts from Yahoo Finance,
-   real financials from screener.in company pages (parsed in-browser).
+   real financials from public company pages (parsed in-browser).
    Results are cached in localStorage so repeat visits are instant.
    (Cache keys keep the legacy 'screenone' prefix so existing watchlists survive the rename.) */
 
@@ -186,7 +186,7 @@ function cleanLabel(s) {
   return String(s || '').replace(/\s+/g, ' ').replace(/\s*\+\s*$/, '').trim();
 }
 
-/* ---------- generic screener.in table parser ---------- */
+/* ---------- generic financials table parser ---------- */
 function parseDataTable(table) {
   if (!table) return null;
   var heads = Array.prototype.map.call(table.querySelectorAll('thead th'), function (th) {

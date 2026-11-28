@@ -1,6 +1,6 @@
 'use strict';
 /* Noobs Screener app: everything on this page is REAL data —
-   prices/charts via Yahoo Finance, financials via screener.in (parsed live in your browser). */
+   prices/charts via Yahoo Finance, financials parsed live in your browser from public company pages. */
 
 var S = {
   sym: 'RELIANCE', range: '1Y', finMode: 'sales', theme: 'light', wl: [],
@@ -210,7 +210,9 @@ function renderIndex(CHd, label, ySym) {
     fEl.textContent = 'Index data' + (qt ? ' as of ' + asOfTime(qt) : '') + ' · Yahoo Finance (indicative, may be delayed)';
   }
   drawPriceChart(CHd);
-  renderScreener(); renderWatchlist();
+  // NOTE: no renderScreener()/renderWatchlist() here — an index refresh (every
+  // 2 min while the market is open) must not rebuild the whole screener table
+  // and watchlist DOM; those only depend on stock charts, not the index's.
 }
 /* "15:32" — used in the freshness stamps so the UI never claims a bare "live". */
 function asOfTime(ms) {
@@ -244,9 +246,9 @@ function renderSearchDrop(q) {
   }
   box.setAttribute('data-q', q);
   // NOTE: no per-row listeners here — the box is rewritten (and appended to)
-  // by the async screener.in search below, which would destroy them. One
+  // by the async remote search below, which would destroy them. One
   // delegated mousedown listener in bindSearchDrop() handles every row.
-  // universal search: anything on screener.in, not just the curated universe
+  // universal search: anything the remote search returns, not just the curated universe
   if (q.trim().length < 2) return;
   var my = ++_searchSeq;
   clearTimeout(_searchT);
@@ -274,9 +276,9 @@ function renderSearchDrop(q) {
         return;
       }
       if (!hits.length) box.innerHTML = '';
-      box.innerHTML += '<div class="sd-empty">More from screener.in</div>' + extra.map(function (x) {
+      box.innerHTML += '<div class="sd-empty">More results</div>' + extra.map(function (x) {
         var hit = cachedChartSym(x.slug);
-        return '<div class="sd-row" data-slug="' + esc(x.slug) + '" data-name="' + esc(x.name) + '"><div><b>' + esc(x.name) + '</b><span class="sd-sym">' + esc(x.slug) + ' · screener.in</span></div>' +
+        return '<div class="sd-row" data-slug="' + esc(x.slug) + '" data-name="' + esc(x.name) + '"><div><b>' + esc(x.name) + '</b><span class="sd-sym">' + esc(x.slug) + ' · search</span></div>' +
           '<div class="sd-p">' + (hit ? '₹' + inr1(hit.price) : '') + '</div></div>';
       }).join('');
       // rows are handled by the delegated listener in bindSearchDrop()
@@ -373,7 +375,7 @@ function freshStampText(C, CH) {
   if (fd) parts.push(fd);
   var qt = quoteTimeOf(chartCands(C.sym));
   if (qt) parts.push('prices as of ' + asOfTime(qt));
-  else if (CH == null) parts.push('price from screener.in (chart unavailable)');
+  else if (CH == null) parts.push('price from the financials page (chart unavailable)');
   return parts.join(' · ');
 }
 function shortVol(v) {
@@ -391,7 +393,7 @@ function slugOfUrl(url) {
    this is the boundary that keeps a hostile response from breaking out of an
    attribute or a URL. Covers RELIANCE, BAJAJ-AUTO, M&M, 3MINDIA, 500325. */
 function validSym(s) { return typeof s === 'string' && /^[A-Z0-9&._-]{1,30}$/.test(s); }
-/* Open any screener.in stock by slug (search results, peers, BSE-only codes, ...).
+/* Open any listed stock by slug (search results, peers, BSE-only codes, ...).
    Curated symbols use the fast path; everything else gets an ephemeral universe entry. */
 function openSlug(slug, name) {
   slug = String(slug || '').toUpperCase();
@@ -704,21 +706,21 @@ function renderPeers(C) {
     vals.forEach(function (v) { h += '<td class="num">' + esc(v === '' ? '–' : v) + '</td>'; });
     h += '</tr>';
   });
-  $('peersTable').innerHTML = h + '</table><p class="tbl-note">Live peer list from screener.in. Highlighted row is this company where listed.</p>';
+  $('peersTable').innerHTML = h + '</table><p class="tbl-note">Live peer list. Highlighted row is this company where listed.</p>';
   Array.prototype.forEach.call(document.querySelectorAll('#peersTable .peerlink'), function (el) {
     el.addEventListener('click', function () { openSlug(el.getAttribute('data-sym'), el.getAttribute('data-name')); });
   });
 }
 function renderStatements(C) {
   $('qTable').innerHTML = finTableHTML(C.quarters, { cols: 8, growth: true, growthStep: 4, first: 'Metric · ₹ Cr' }) +
-    '<p class="tbl-note">Quarterly figures in ₹ Cr. Source: screener.in (consolidated where available).</p>';
+    '<p class="tbl-note">Quarterly figures in ₹ Cr (consolidated where available).</p>';
   var T = C.pnl, n = 8, note = '';
   if (T && T.cols.length > n) note = 'Showing latest ' + n + ' periods (scroll table for more). ';
   $('pnlTable').innerHTML = finTableHTML(T, { cols: n, growth: true, first: 'Metric · ₹ Cr' }) +
-    '<p class="tbl-note">' + note + 'Annual figures in ₹ Cr, last column is TTM where published. Source: screener.in.</p>';
-  $('bsTable').innerHTML = finTableHTML(C.bs, { cols: 8, first: 'Metric · ₹ Cr' }) + '<p class="tbl-note">Figures in ₹ Cr. Source: screener.in.</p>';
-  $('cfTable').innerHTML = finTableHTML(C.cf, { cols: 8, first: 'Metric · ₹ Cr' }) + '<p class="tbl-note">Figures in ₹ Cr. Source: screener.in.</p>';
-  $('ratTable').innerHTML = finTableHTML(C.rat, { cols: 8, first: 'Metric' }) + '<p class="tbl-note">Year-wise ratios as published. Source: screener.in.</p>';
+    '<p class="tbl-note">' + note + 'Annual figures in ₹ Cr, last column is TTM where published.</p>';
+  $('bsTable').innerHTML = finTableHTML(C.bs, { cols: 8, first: 'Metric · ₹ Cr' }) + '<p class="tbl-note">Figures in ₹ Cr.</p>';
+  $('cfTable').innerHTML = finTableHTML(C.cf, { cols: 8, first: 'Metric · ₹ Cr' }) + '<p class="tbl-note">Figures in ₹ Cr.</p>';
+  $('ratTable').innerHTML = finTableHTML(C.rat, { cols: 8, first: 'Metric' }) + '<p class="tbl-note">Year-wise ratios as published.</p>';
   drawFinChart(C);
 }
 function shortCr(v) {
@@ -782,7 +784,7 @@ function renderSH(C) {
     r.vals.forEach(function (v) { h += '<td class="num">' + esc(v || '–') + '</td>'; });
     h += '</tr>';
   });
-  $('shTable').innerHTML = h + '</tbody></table><p class="tbl-note">Quarterly shareholding in %. Source: screener.in.</p>';
+  $('shTable').innerHTML = h + '</tbody></table><p class="tbl-note">Quarterly shareholding in %.</p>';
   // stacked chart
   var c = $('shChart'), box = fitCanvas(c, 240), ctx = box.ctx, W = box.w, H = box.h;
   var n = T.cols.length, padB = 30, padT = 14;
@@ -802,7 +804,6 @@ function renderSH(C) {
 function renderDocs(C) {
   var links = [];
   if (C.site) links.push(['Company website', C.site]);
-  links.push(['screener.in company page', 'https://www.screener.in/company/' + C.sym + '/']);
   if (C.nse) links.push(['NSE quote page', C.nse]);
   else links.push(['NSE quote page', 'https://www.nseindia.com/get-quotes/equity?symbol=' + C.sym]);
   if (C.bse) links.push(['BSE quote page', C.bse]);
@@ -815,7 +816,7 @@ function renderDocs(C) {
 function renderAbout(C) {
   var paras = C.about.length ? C.about.slice(0, 3).map(function (p) { return '<p>' + esc(p) + '</p>'; }).join('')
     : '<p class="muted">Company description not published on the source page.</p>';
-  $('aboutText').innerHTML = paras + '<p class="muted" style="font-size:12.5px">Source: screener.in company profile. Consolidated statements where available.</p>';
+  $('aboutText').innerHTML = paras + '<p class="muted" style="font-size:12.5px">Company profile parsed live. Consolidated statements where available.</p>';
   var prom = null;
   if (C.shp) {
     var pr = C.shp.rows.find(function (r) { return r.label.toLowerCase().indexOf('promoter') === 0; });
@@ -971,107 +972,6 @@ function renderVal(C, chart) {
   }
 }
 
-/* ---------------- backtest ---------------- */
-function universeCounts() {
-  var need = 0, have = 0;
-  ACTIVE_UNIVERSE.forEach(function (u) {
-    need++;
-    if ((typeof CO !== 'undefined' && CO[u.sym]) || cachedCompany(u.sym)) have++;
-  });
-  return { have: have, need: need };
-}
-async function ensureUniverse(onProgress) {
-  kickScreenerLoad();
-  var idleRounds = 0;
-  for (var i = 0; i < 900; i++) {
-    var c = universeCounts();
-    if (onProgress) onProgress(c);
-    if (!_loadingAll) {
-      if (c.have > 0) return c;
-      // nothing loaded and nothing in flight -> give up instead of spinning
-      if (++idleRounds >= 3) return c;
-    } else {
-      idleRounds = 0;
-    }
-    await sleep(400);
-  }
-  return universeCounts();
-}
-function btKpi(label, value, cls) {
-  return '<div class="bt-kpi"><span>' + esc(label) + '</span><b class="' + (cls || '') + '">' + value + '</b></div>';
-}
-function renderBacktest(res, years) {
-  var out = $('btOut'); if (!out) return;
-  if (!res || !res.count) {
-    out.innerHTML = '<p class="muted">No stock in the universe passed this screen at that date — loosen the filters and try again.</p>';
-    return;
-  }
-  var fmtPct = function (v) { return v == null ? '–' : (v > 0 ? '+' : '') + v.toFixed(1) + '%'; };
-  var alpha = (res.cagr != null && res.benchCagr != null) ? res.cagr - res.benchCagr : null;
-  var html = '<div class="bt-res">' +
-    btKpi('Stocks passing', res.count + ' / ' + res.universe) +
-    btKpi(years + '-year CAGR', fmtPct(res.cagr), res.cagr > 0 ? 'pos' : (res.cagr < 0 ? 'neg' : '')) +
-    btKpi('NIFTY CAGR', fmtPct(res.benchCagr)) +
-    btKpi('vs NIFTY', (alpha == null ? '–' : (alpha > 0 ? '+' : '') + alpha.toFixed(1) + ' pp'), alpha > 0 ? 'pos' : (alpha < 0 ? 'neg' : '')) +
-    btKpi('Max drawdown', fmtPct(res.maxDrawdown)) +
-    btKpi('Hit rate', res.hitRate == null ? '–' : Math.round(res.hitRate) + '%') +
-    '</div>';
-  var top = res.picks.slice(0, 12);
-  html += '<div class="bt-picks"><table><thead><tr><th>Stock</th><th>Return</th><th>P/E then</th><th>ROE then</th></tr></thead><tbody>' +
-    top.map(function (p) {
-      return '<tr class="bt-row" data-sym="' + esc(p.sym) + '"><td>' + esc(p.name || p.sym) + '</td><td class="' + numCls(p.ret) + '">' + fmtPct(p.ret) +
-        '</td><td>' + (p.pe == null ? '–' : p.pe.toFixed(1) + '×') + '</td><td>' + (p.roe == null ? '–' : p.roe.toFixed(1) + '%') + '</td></tr>';
-    }).join('') + '</tbody></table>' +
-    (res.picks.length > top.length ? '<p class="muted" style="font-size:12px">Showing best ' + top.length + ' of ' + res.picks.length + '.</p>' : '') +
-    '</div>';
-  out.innerHTML = html;
-  // click a pick to open that stock
-  Array.prototype.forEach.call(out.querySelectorAll('.bt-row'), function (tr) {
-    tr.style.cursor = 'pointer';
-    tr.addEventListener('click', function () {
-      var sym = tr.getAttribute('data-sym');
-      if (sym && UNI[sym]) selectStock(sym);
-      else if (sym) openSlug(sym, tr.textContent);
-    });
-  });
-}
-async function runBacktest() {
-  var btn = $('btRun'), out = $('btOut');
-  if (!btn || !out) return;
-  if (typeof valBacktest !== 'function') return;
-  var years = parseFloat(($('btYears') || {}).value) || 3;
-  btn.disabled = true; btn.textContent = 'Preparing…';
-  try {
-    var counts = await ensureUniverse(function (c) {
-      btn.textContent = 'Loading data ' + c.have + '/' + c.need + '…';
-    });
-    if (!counts.have) {
-      out.innerHTML = '<p class="muted">Could not load the universe — check your connection and try again.</p>';
-      return;
-    }
-    btn.textContent = 'Running…';
-    var end = Date.now();
-    var start = end - years * 365.25 * 86400000;
-    var members = [];
-    ACTIVE_UNIVERSE.forEach(function (u) {
-      var C = CO[u.sym] || cachedCompany(u.sym);
-      var chart = chartOf(u.sym);
-      if (C && chart) members.push({ sym: u.sym, C: C, chart: chart });
-    });
-    var bench = null;
-    try { bench = CH['^NSEI'] || await loadChart('^NSEI'); } catch (e) { bench = null; }
-    var passes = function (fund, C) {
-      var u = UNI[C.sym] || { sym: C.sym, sec: '' };
-      return rowPasses(u, S.scr, fund, null);
-    };
-    var res = valBacktest(members, start, end, passes, bench);
-    renderBacktest(res, years);
-  } catch (e) {
-    out.innerHTML = '<p class="muted">Backtest failed: ' + esc(String(e && e.message || e)) + '</p>';
-  } finally {
-    btn.disabled = false; btn.textContent = 'Run backtest';
-  }
-}
 function renderAll(C, CHd) {
   LAST_CH = CHd;
   renderStockHead(C, CHd);
@@ -1606,8 +1506,17 @@ function setTheme(t) {
   if (C && S.mode === 'stock') { renderAll(C, chartOf(S.sym)); }
   else if (S.mode === 'index' && LAST_CH && S.index) { renderIndex(LAST_CH, S.index.label, S.index.y); }
 }
+/* The sticky subnav parks at var(--head-h); the topbar wraps to two lines on
+   narrow screens, so keep the variable in sync with the real header height. */
+function syncHeadH() {
+  var tb = document.querySelector('.topbar');
+  if (tb) document.documentElement.style.setProperty('--head-h', tb.offsetHeight + 'px');
+}
 function init() {
   document.documentElement.setAttribute('data-theme', S.theme);
+  syncHeadH();
+  // re-measure once everything (fonts, images) has settled
+  window.addEventListener('load', syncHeadH);
   // desktop build: swap the blurred sticky bars for solid ones (cheaper to paint)
   if (typeof PStore !== 'undefined' && PStore.isDisk) document.body.classList.add('native');
   $('themeBtn').textContent = S.theme === 'dark' ? 'Light' : 'Dark';
@@ -1642,7 +1551,7 @@ function init() {
       var hits = ACTIVE_UNIVERSE.filter(function (u) { return matches(si.value, u.sym); });
       if (hits.length) { selectStock(hits[0].sym); return; }
       // Enter must also open the top *remote* hit (B20) — anything the
-      // screener.in search appended to the dropdown, not just curated names.
+      // remote search appended to the dropdown, not just curated names.
       var box = $('searchDrop');
       var row = box && !box.hidden ? box.querySelector('.sd-row') : null;
       if (row) {
@@ -1674,9 +1583,6 @@ function init() {
     if (!el) return;
     var onFilter = function () {
       kickScreenerLoad(); readScreenerInputs(); renderScreenerSoon();
-      // a result from the previous filters would be misleading
-      var bo = $('btOut');
-      if (bo && bo.innerHTML) bo.innerHTML = '<p class="muted">Filters changed — run the backtest again.</p>';
     };
     el.addEventListener('input', onFilter);
     el.addEventListener('change', onFilter);
@@ -1723,7 +1629,6 @@ function init() {
     else { loadAndRender(S.sym); }
   });
   $('starBtn').addEventListener('click', function () { toggleWL(S.sym); });
-  var _bt = $('btRun'); if (_bt) _bt.addEventListener('click', runBacktest);
   var _ib = $('installBtn'); if (_ib) _ib.addEventListener('click', openInstall);
   var _ic = $('installClose'); if (_ic) _ic.addEventListener('click', function () { $('installOverlay').hidden = true; });
   var _io = $('installOverlay'); if (_io) _io.addEventListener('click', function (e) { if (e.target === _io) _io.hidden = true; });
@@ -1752,6 +1657,7 @@ function init() {
   window.addEventListener('resize', function () {
     clearTimeout(resizeT);
     resizeT = setTimeout(function () {
+      syncHeadH();
       if (LAST_CH) drawPriceChart(LAST_CH);
       var vc = CO[S.sym] || cachedCompany(S.sym);
       if (vc && S.mode === 'stock') renderVal(vc, chartOf(S.sym));

@@ -113,8 +113,12 @@ table.fin,#stPrice,.wl-p,.sd-p,.idx b{font-variant-numeric:tabular-nums}
 .idx-n{color:var(--muted);font-weight:600}
 
 /* ---------- sub nav ---------- */
+/* Sticks directly BELOW the sticky topbar. Both used to stick at top:0, so the
+   nav slid up underneath the header (z 55 < 60) and vanished while scrolling.
+   --head-h is kept in sync with the real header height by app.js (it wraps to
+   two lines on narrow screens). */
 .subnav{
-  position:sticky;top:0;z-index:55;
+  position:sticky;top:var(--head-h);z-index:55;
   background:var(--card);
   background:color-mix(in srgb,var(--card) 78%,transparent);
   -webkit-backdrop-filter:blur(20px) saturate(180%);backdrop-filter:blur(20px) saturate(180%);
@@ -127,6 +131,8 @@ table.fin,#stPrice,.wl-p,.sd-p,.idx b{font-variant-numeric:tabular-nums}
 
 /* ---------- layout ---------- */
 .wrap{max-width:1220px;margin:0 auto;padding:20px 16px 64px}
+/* anchor jumps must clear the two sticky bars (topbar + subnav) */
+section[id]{scroll-margin-top:calc(var(--head-h) + 58px)}
 /* Desktop (Electron) build: backdrop blur on the sticky bars is by far the most
    expensive thing to repaint while scrolling on Windows, so use solid surfaces. */
 body.native .topbar,body.native .subnav{
@@ -146,20 +152,6 @@ body.native .overlay{-webkit-backdrop-filter:none;backdrop-filter:none;backgroun
 .chip.fair{background:var(--fill2);color:var(--muted)}
 .chip.rich{background:rgba(215,0,21,.12);color:var(--neg)}
 .val-note{font-size:12px;margin:10px 0 0;line-height:1.5}
-
-/* ---- Backtest ---- */
-.bt-wrap{margin-top:18px;border-top:1px solid var(--line);padding-top:16px}
-.bt-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.bt-sel{padding:7px 10px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--card);color:var(--ink);font-size:13px}
-.bt-note{font-size:12px;color:var(--muted);margin:8px 0 10px;line-height:1.5}
-.bt-res{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:10px 0}
-.bt-kpi{background:var(--fill);border-radius:var(--r-m);padding:11px 13px}
-.bt-kpi span{display:block;font-size:12px;color:var(--muted)}
-.bt-kpi b{font-size:19px;font-weight:650;letter-spacing:-.3px}
-.bt-picks{margin-top:10px}
-.bt-picks table{width:100%;border-collapse:collapse;font-size:13px}
-.bt-picks th,.bt-picks td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:right}
-.bt-picks th:first-child,.bt-picks td:first-child{text-align:left}
 
 /* ---- News ---- */
 .news-list{display:flex;flex-direction:column;gap:2px}

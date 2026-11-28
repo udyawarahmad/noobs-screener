@@ -1,7 +1,7 @@
 'use strict';
 /* Valuation history + screen backtesting — the "Time Machine".
 
-   Everything here is a pure function over the parsed screener.in tables (`C.pnl`,
+   Everything here is a pure function over the parsed financials tables (`C.pnl`,
    `C.bs`, `C.cf`) and a Yahoo price chart ({pts:[{t,c}]}), so it can be unit
    tested against real published numbers without a browser.
 
@@ -30,8 +30,6 @@ function valMonthEnd(label) {
   var end = new Date(Date.UTC(year, mon + 1, 0));   // last day of that month
   return end.getTime();
 }
-
-function valDay(t) { return Math.floor(t / 86400000); }
 
 /* ---------------- table access ---------------- */
 
@@ -214,7 +212,7 @@ function valQuantile(sorted, q) {
 
 /* Summary of one ratio's history: where does "now" sit?
    `calibrate` scales the series so today's value matches the published multiple
-   (screener.in's P/E is standalone-ish, so a raw consolidated ratio drifts). */
+   (the published P/E is standalone-ish, so a raw consolidated ratio drifts). */
 function valSummarise(daily, currentValue, calibrate) {
   var vals = (daily || []).map(function (d) { return d.v; }).filter(function (v) { return v > 0 && isFinite(v); });
   if (vals.length < 20) return null;
@@ -280,7 +278,7 @@ function valForCompany(C, chart) {
 
 /* ---------------- point-in-time fundamentals (for backtests) ---------------- */
 
-/* The fiscal year a screener.in-style column represents, as of `dateMs`. */
+/* The fiscal year a source column represents, as of `dateMs`. */
 function valYearAvailable(cols, dateMs) {
   var usable = null;
   for (var i = 0; i < cols.length; i++) {
@@ -369,102 +367,5 @@ function valFundamentalsAt(C, chart, dateMs) {
     price: price,
     fyLabel: pCol.label,
     eps: eps
-  };
-}
-
-/* ---------------- backtest ---------------- */
-
-function valCagr(startV, endV, years) {
-  if (!(startV > 0) || !(endV > 0) || !(years > 0)) return null;
-  return (Math.pow(endV / startV, 1 / years) - 1) * 100;
-}
-
-function valMaxDrawdown(values) {
-  var peak = -Infinity, worst = 0;
-  for (var i = 0; i < values.length; i++) {
-    var v = values[i];
-    if (!isFinite(v) || v <= 0) continue;
-    if (v > peak) peak = v;
-    if (peak > 0) {
-      var dd = (v / peak - 1) * 100;
-      if (dd < worst) worst = dd;
-    }
-  }
-  return worst;
-}
-
-/* Equal-weight portfolio of every stock that passed the screen on `startMs`,
-   held to `endMs`. `members` = [{sym, C, chart}]. `passes(fund, C)` decides. */
-function valBacktest(members, startMs, endMs, passes, benchmarkChart) {
-  var picks = [], rets = [];
-  members.forEach(function (m) {
-    var fund = valFundamentalsAt(m.C, m.chart, startMs);
-    if (!fund) return;
-    var ok = false;
-    try { ok = !!passes(fund, m.C); } catch (e) { ok = false; }
-    if (!ok) return;
-    var p0 = valPriceAt(m.chart.pts, startMs);
-    var p1 = valPriceAt(m.chart.pts, endMs);
-    if (!(p0 > 0) || !(p1 > 0)) return;
-    var r = (p1 / p0 - 1) * 100;
-    picks.push({ sym: m.sym, name: (m.C && m.C.name) || m.sym, ret: r, pe: fund.pe, roe: fund.roe, mcap: fund.mcap });
-    rets.push(r);
-  });
-
-  var years = (endMs - startMs) / (365.25 * 86400000);
-  var avg = rets.length ? rets.reduce(function (a, b) { return a + b; }, 0) / rets.length : null;
-
-  // equal-weight equity curve from the members' own daily closes
-  var curve = [];
-  if (members.length && picks.length) {
-    var picked = {};
-    picks.forEach(function (p) { picked[p.sym] = true; });
-    var byDay = {};
-    members.forEach(function (m) {
-      if (!picked[m.sym]) return;
-      var pts = (m.chart && m.chart.pts) || [];
-      var base = valPriceAt(pts, startMs);
-      if (!(base > 0)) return;
-      pts.forEach(function (p) {
-        if (p.t < startMs || p.t > endMs) return;
-        var d = valDay(p.t);
-        if (!byDay[d]) byDay[d] = { sum: 0, n: 0 };
-        byDay[d].sum += p.c / base;
-        byDay[d].n += 1;
-      });
-    });
-    Object.keys(byDay).map(Number).sort(function (a, b) { return a - b; }).forEach(function (d) {
-      if (byDay[d].n > 0) curve.push(byDay[d].sum / byDay[d].n);
-    });
-  }
-
-  var benchStart = benchmarkChart ? valPriceAt(benchmarkChart.pts, startMs) : null;
-  var benchEnd = benchmarkChart ? valPriceAt(benchmarkChart.pts, endMs) : null;
-  var benchRet = (benchStart > 0 && benchEnd > 0) ? (benchEnd / benchStart - 1) * 100 : null;
-
-  var winners = rets.filter(function (r) { return r > 0; }).length;
-
-  /* One equity curve drives BOTH KPIs (B15): CAGR and max drawdown describe
-     the same equal-weight portfolio path, instead of a mean-of-returns CAGR
-     sitting next to a curve-based drawdown. */
-  var curveCagr = null;
-  if (curve.length > 1 && years > 0 && curve[0] > 0 && curve[curve.length - 1] > 0) {
-    curveCagr = (Math.pow(curve[curve.length - 1] / curve[0], 1 / years) - 1) * 100;
-  }
-
-  return {
-    count: picks.length,
-    universe: members.length,
-    avgReturn: avg,
-    medianReturn: rets.length ? rets.slice().sort(function (a, b) { return a - b; })[Math.floor(rets.length / 2)] : null,
-    cagr: curveCagr,
-    benchReturn: benchRet,
-    benchCagr: (benchRet != null) ? valCagr(100, 100 + benchRet, years) : null,
-    maxDrawdown: curve.length > 2 ? valMaxDrawdown(curve) : null,
-    hitRate: rets.length ? (winners / rets.length) * 100 : null,
-    years: years,
-    picks: picks.sort(function (a, b) { return b.ret - a.ret; }),
-    startMs: startMs,
-    endMs: endMs
   };
 }

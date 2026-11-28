@@ -3,7 +3,7 @@
    localStorage) and the app already treats that as the offline source of truth.
    This worker only keeps the *shell* (HTML/CSS/JS/icons) so the page opens
    instantly and works offline; data requests pass straight through. */
-var SW_VERSION = 'v3.0.0';
+var SW_VERSION = 'v3.0.1';
 var SHELL = 'shell-' + SW_VERSION;
 var SHELL_FILES = [
   './',
@@ -42,7 +42,7 @@ self.addEventListener('fetch', function (e) {
   if (req.method !== 'GET') return;
   var url;
   try { url = new URL(req.url); } catch (err) { return; }
-  // same-origin only — data hosts (Yahoo, screener.in, …) are the app's job,
+  // same-origin only — data hosts (market data, financials, news, …) are the app's job,
   // not the worker's: PStore already caches them with the right TTLs
   if (url.origin !== self.location.origin) return;
 

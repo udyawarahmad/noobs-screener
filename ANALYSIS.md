@@ -8,6 +8,15 @@
 > the roadmap's headline feature — **shareable screen links (`?q=`)** — has
 > shipped as part of **v3.0.0**. What's left is §5's forward roadmap
 > (NSE-500 via official CSVs, ⌘K palette, compare mode, IndexedDB, ESLint…).
+>
+> **UPDATE v3.0.1 (same day):** reliability pass — the section nav now stays
+> pinned *below* the header while scrolling (it used to slide underneath it),
+> the backtest feature was removed entirely (UI, maths, tests, styles), all
+> visible data-source names were scrubbed from the UI/docs (fetch URLs and the
+> host allowlist remain, as the features depend on them), index refreshes no
+> longer rebuild the screener/watchlist DOM, and the test chain now really runs
+> all **8 suites / 103 checks** (a duplicate `package.json` key had been
+> silently skipping the pwa suite).
 
 > Audited 2026-11-28 on branch `arena/75f05bca-noobs-screener` (base `2c41783`).
 > Method: full source review of every file (~5,100 lines), the whole test suite run
@@ -77,7 +86,7 @@ vulnerabilities (including in Electron itself).
 │ renderer/  (no bundler, no framework, classic <script> tags)              │
 │  store.js      PStore: disk bridge ⇄ localStorage fallback                 │
 │  universe.js   hand-curated 161 NSE stocks (162 entries, 1 skipped)        │
-│  live.js       Yahoo chart API + screener.in HTML parser + fetch chain     │
+│  live.js       Yahoo chart API + financials HTML parser + fetch chain     │
 │  news.js       Google/Bing/Yahoo RSS + strict relevance filter             │
 │  valuation.js  pure: P/E-P/B history, point-in-time fundamentals, backtest │
 │  app.js        all UI: canvas charts, screener, watchlist, search, backtest│
@@ -85,7 +94,7 @@ vulnerabilities (including in Electron itself).
 └────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Data flow per stock: `screener.in/company/<SYM>/` HTML → `DOMParser` → labelled
+Data flow per stock: company-page HTML → `DOMParser` → labelled
 tables → `C.fund`/`C.pnl`/`C.bs`… ; `query1.finance.yahoo.com/v8/finance/chart`
 → `{pts:[{t,c,o,h,l,v}]}`. Both cached (7 days / 1 day) through `PStore`.
 
@@ -134,7 +143,7 @@ consecutive comparison — but then the section copy must change).
 ### B2 🔴 Search dropdown: results die after the remote search returns
 
 `renderSearchDrop()` attaches `mousedown` listeners to curated rows, then later
-the screener.in search resolves and does `box.innerHTML += …` (`app.js:252`).
+the remote search resolves and does `box.innerHTML += …` (`app.js:252`).
 `innerHTML +=` re-parses the whole box, **discarding the nodes and their
 listeners** — every curated row becomes inert until the next keystroke.
 
@@ -144,7 +153,7 @@ Verified in isolation:
 clicks after innerHTML += : 0   (expected 1 if listeners survived)
 ```
 
-**Fix**: build the *entire* dropdown HTML (curated + "More from screener.in")
+**Fix**: build the *entire* dropdown HTML (curated + "More results")
 in one string, assign once, attach listeners after — or better, use **event
 delegation** on `#searchDrop` (one listener, immune to re-renders).
 
@@ -182,7 +191,7 @@ into HTML**:
   and `esc()` only escapes `"`.
 
 Where does a hostile symbol come from? On the **website build** every
-screener.in response may transit **corsproxy.io**; a hostile/compromised proxy
+the financials response may transit **corsproxy.io**; a hostile/compromised proxy
 or upstream can return a slug like `X" onmouseover="…`. One quote breaks out of
 the attribute. In Electron the blast radius is smaller but the renderer holds
 the `ns-fetch` bridge (see B5). Also functionally: a slug containing `'` breaks
@@ -206,7 +215,7 @@ the app. Not exploitable by a random website (the bridge is only exposed to your
 own page), but it's the one bridge an XSS (B4) would grab.
 
 **Fix**: allow only `http:`/`https:` and ideally a host allowlist
-(`query1.finance.yahoo.com`, `*.screener.in`, `news.google.com`,
+(`query1.finance.yahoo.com`, the financials host, `news.google.com`,
 `www.bing.com`, `feeds.finance.yahoo.com`, `corsproxy.io`, …) with a clear
 error for anything else. Cap response size. Consider a GET-only restriction.
 
@@ -430,7 +439,7 @@ fuzzing, jsdom boot) makes this cheap.
 Your unfair advantage: **no build step, no backend, no API keys, everything
 client-side** — a stock screener a noob can double-click. Screener.in has the
 data but not the product craft; TradingView has the craft but not the India
-fundamentals. Win by combining: *screener.in's data model × TradingView's
+fundamentals. Win by combining: *the financials data model × TradingView's
 polish × zero-install honesty*.
 
 ### 5.1 Data & trust (the foundation)
@@ -446,11 +455,11 @@ polish × zero-install honesty*.
   a global market-status pill (open/closed/closed-updating) driven by a tiny
   NSE calendar (weekends + fixed holidays list, ~40 lines).
 - **Polite, resilient scraping**: exponential backoff with jitter on 429/5xx,
-  a request queue that serialises screener.in traffic (you're a guest on their
+  a request queue that serialises financials-source traffic (you're a guest on their
   service), conditional requests if they send validators, and a visible
-  "screener.in unreachable — showing cached 6 h old data" banner instead of
+  "data source unreachable — showing cached 6 h old data" banner instead of
   silent staleness.
-- **Data-source status card** ("Yahoo: 41 ms · screener.in: 210 ms · Google
+- **Data-source status card** ("Yahoo: 41 ms · financials: 210 ms · Google
   News: down") — turns opacity into trust and makes bug reports actionable.
 - **Legal posture**: keep the attribution section, add `SECURITY.md`, and
   evaluate at least one *licensed* fallback feed (e.g. an optional user-supplied
