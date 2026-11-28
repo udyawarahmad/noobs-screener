@@ -1,6 +1,6 @@
 'use strict';
 /* Valuation + backtest maths, checked against real published TCS figures
-   (screener.in consolidated page, fetched 27 Nov 2026) and synthetic series.
+   (a consolidated company page, fetched 27 Nov 2026) and synthetic series.
    Run: node test/valuation.test.js */
 const assert = require('assert');
 const fs = require('fs');
@@ -86,7 +86,7 @@ console.log('\nper-share history (real TCS numbers)');
 test('share count from the latest balance sheet matches market cap', () => {
   const sh = V.valShares(TCS);
   near(sh.sharesCr, 362, 0.01, 'shares (crore)');
-  // 362 Cr shares × ₹2,572 = ₹9.3 lakh crore, as screener.in reports
+  // 362 Cr shares × ₹2,572 = ₹9.3 lakh crore, as the source reports
   near(sh.sharesCr * 2572.5 / 1000, 931, 3, 'market cap (₹ ’000 cr)');
 });
 
@@ -99,7 +99,7 @@ test('annual EPS timeline uses the published (split-adjusted) EPS row', () => {
   assert.ok(tl.eps[0].adjusted, 'flagged as source-adjusted');
 });
 
-test('book value per share reproduces screener.in’s ₹329', () => {
+test('book value per share reproduces the published ₹329', () => {
   const tl = V.valPerShareTimelines(TCS);
   const sept = { capital: 362, reserves: 118624 };
   near((sept.capital + sept.reserves) / 362, 329, 1, 'BVPS');
@@ -134,7 +134,7 @@ test('P/E now is price ÷ TTM EPS and PB now matches the published 7.82×', () =
   const price = TCS_CHART.pts[TCS_CHART.pts.length - 1].c;
   near(v.pe.now, TCS.fund.pe, 0.01, 'P/E anchored to the published multiple');
   near(v.pb.now, price / 329, 0.01, 'P/B from published book value');
-  // cross-check the formula against screener.in's own sentence:
+  // cross-check the formula against the published sentence:
   // "Stock is trading at 7.82 times its book value" at ₹2,572.50 / BV ₹329
   near(2572.5 / 329, 7.82, 0.01, 'P/B matches the source text');
   assert.ok(v.pe.percentile >= 0 && v.pe.percentile <= 100);
@@ -199,7 +199,7 @@ test('bank: book value per share reproduces the published ₹391', () => {
   const sh = V.valShares(HDFCBANK);
   near(sh.sharesCr, 1542, 0.01, 'shares');
   const bvps = (1542 + 601927) / 1542;
-  near(bvps, 391, 0.5, 'BVPS vs screener.in');
+  near(bvps, 391, 0.5, 'BVPS vs published');
   // market cap cross-check: 1542 Cr shares × ₹857.25 ≈ ₹13.2 lakh crore
   near(1542 * 857.25 / 1000, 1322, 10, 'market cap (₹ ’000 cr)');
 });
@@ -248,95 +248,6 @@ test('returns null instead of guessing when data is missing', () => {
   assert.strictEqual(V.valShares(noShares), null);
   assert.strictEqual(V.valForCompany(TCS, null), null);
 });
-
-console.log('\nbacktest maths');
-
-test('CAGR and max drawdown', () => {
-  near(V.valCagr(100, 121, 2), 10, 1e-9, 'CAGR');
-  assert.strictEqual(V.valCagr(0, 100, 2), null);
-  assert.strictEqual(V.valCagr(100, 100, 0), null);
-  near(V.valMaxDrawdown([100, 120, 90, 110]), -25, 1e-9, 'drawdown');
-  near(V.valMaxDrawdown([100, 110, 120]), 0, 1e-9, 'no drawdown');
-  near(V.valMaxDrawdown([]), 0, 1e-9, 'empty');
-});
-
-function flatChart(startMs, endMs, from, to) {
-  const pts = [];
-  const steps = 100;
-  for (let i = 0; i <= steps; i++) {
-    const t = startMs + (endMs - startMs) * i / steps;
-    pts.push({ t, c: from + (to - from) * i / steps });
-  }
-  return { pts };
-}
-
-test('equal-weight portfolio: returns, hit rate, benchmark and drawdown', () => {
-  const start = Date.UTC(2023, 0, 1), end = Date.UTC(2026, 0, 1);
-  const members = [
-    { sym: 'A', C: TCS, chart: flatChart(start, end, 100, 200) },   // +100%
-    { sym: 'B', C: TCS, chart: flatChart(start, end, 100, 50) },    // -50%
-    { sym: 'C', C: TCS, chart: flatChart(start, end, 100, 100) }    // flat
-  ];
-  const bench = flatChart(start, end, 100, 150);                    // +50%
-  const res = V.valBacktest(members, start, end, () => true, bench);
-
-  assert.strictEqual(res.count, 3);
-  near(res.avgReturn, (100 - 50 + 0) / 3, 0.01, 'equal weight average');
-  near(res.hitRate, 100 / 3, 0.01, 'one of three winners');
-  near(res.benchReturn, 50, 0.01, 'benchmark');
-  near(res.years, 3.0, 0.02, 'three years');
-  near(res.cagr, (Math.pow((1 + 16.6667 / 100), 1 / 3) - 1) * 100, 0.01, 'portfolio CAGR');
-  near(res.benchCagr, (Math.pow(1.5, 1 / 3) - 1) * 100, 0.01, 'benchmark CAGR');
-  assert.ok(res.maxDrawdown <= 0 && res.maxDrawdown > -100, 'drawdown sane: ' + res.maxDrawdown);
-  assert.strictEqual(res.picks[0].sym, 'A', 'sorted best first');
-});
-
-test('B15: CAGR and drawdown come from the same equity curve', () => {
-  const start = Date.UTC(2023, 0, 1), end = Date.UTC(2026, 0, 1);
-  const mid = start + (end - start) / 2;
-  const members = [
-    { sym: 'A', C: TCS, chart: flatChart(start, end, 100, 200) },           // full window, +100%
-    { sym: 'B', C: TCS, chart: flatChart(start, mid, 100, 100) }            // stops trading at mid
-  ];
-  const res = V.valBacktest(members, start, end, () => true, null);
-  assert.strictEqual(res.count, 2, 'both are picks');
-  // The old code computed CAGR from the mean of per-stock returns (1.5^(1/3))
-  // while maxDrawdown came from the curve — two constructions in one KPI row.
-  // The curve's final average only includes the stock still trading (2.0), so
-  // curve-based CAGR is ~26% here and must NOT be the old ~14.5%.
-  near(res.cagr, (Math.pow(2, 1 / res.years) - 1) * 100, 0.05, 'CAGR from the equity curve');
-  const oldMeanCagr = (Math.pow(1.5, 1 / 3) - 1) * 100;
-  assert.ok(Math.abs(res.cagr - oldMeanCagr) > 5, 'no longer the mean-of-returns number (' + res.cagr.toFixed(1) + ')');
-  assert.ok(res.maxDrawdown <= 0 && res.maxDrawdown > -100, 'drawdown from the same curve');
-});
-
-test('the screen predicate decides who is in the portfolio', () => {
-  const start = Date.UTC(2023, 0, 1), end = Date.UTC(2026, 0, 1);
-  const members = [
-    { sym: 'A', C: TCS, chart: flatChart(start, end, 100, 200) },
-    { sym: 'B', C: TCS, chart: flatChart(start, end, 100, 50) }
-  ];
-  const onlyA = V.valBacktest(members, start, end, (fund, C) => C === TCS && fund.mcap > 0, null);
-  assert.strictEqual(onlyA.count, 2, 'both pass a mcap filter');
-  const none = V.valBacktest(members, start, end, () => false, null);
-  assert.strictEqual(none.count, 0);
-  assert.strictEqual(none.avgReturn, null);
-  assert.strictEqual(none.cagr, null);
-  assert.strictEqual(none.maxDrawdown, null);
-});
-
-test('a stock with no price history at the start date is skipped, not zeroed', () => {
-  const start = Date.UTC(2023, 0, 1), end = Date.UTC(2026, 0, 1);
-  const members = [
-    { sym: 'A', C: TCS, chart: flatChart(start, end, 100, 200) },
-    { sym: 'B', C: TCS, chart: { pts: [{ t: Date.UTC(2025, 0, 1), c: 10 }] } }   // listed later
-  ];
-  const res = V.valBacktest(members, start, end, () => true, null);
-  assert.strictEqual(res.count, 1, 'late listing cannot poison the average');
-  assert.strictEqual(res.benchReturn, null, 'no benchmark given -> null');
-});
-
-console.log('\nfuzz: degenerate companies and portfolios');
 
 /* deterministic PRNG so failures reproduce */
 function rng(seed) {
@@ -404,38 +315,8 @@ test('300 random companies: never NaN, percentages stay in range', () => {
   assert.ok(produced > 100, 'most random companies should produce a valuation, got ' + produced + '/' + checked);
 });
 
-test('200 random portfolios: backtest never reports impossible statistics', () => {
-  const rand = rng(7);
-  for (let n = 0; n < 200; n++) {
-    const start = Date.UTC(2023, 0, 1), end = Date.UTC(2026, 0, 1);
-    const members = [];
-    const size = Math.floor(rand() * 8);
-    for (let i = 0; i < size; i++) {
-      const from = 20 + rand() * 500, to = 20 + rand() * 500;
-      members.push({
-        sym: 'M' + i, C: TCS,
-        chart: { pts: Array.from({ length: 200 }, (_, k) => ({ t: start + (end - start) * k / 199, c: from + (to - from) * k / 199 })) }
-      });
-    }
-    const res = V.valBacktest(members, start, end, () => rand() < 0.6, null);
-    assert.ok(res.count <= members.length, 'count bounded by universe');
-    if (res.hitRate != null) assert.ok(res.hitRate >= 0 && res.hitRate <= 100, 'hit rate in range');
-    if (res.maxDrawdown != null) assert.ok(res.maxDrawdown <= 0 && res.maxDrawdown >= -100, 'drawdown in range: ' + res.maxDrawdown);
-    if (res.avgReturn != null && res.picks.length) {
-      const rets = res.picks.map(p => p.ret);
-      assert.ok(res.avgReturn >= Math.min.apply(null, rets) - 1e-9 && res.avgReturn <= Math.max.apply(null, rets) + 1e-9,
-        'average lies between best and worst');
-    }
-    assert.strictEqual(res.picks.length, res.count);
-  }
-});
-
-test('empty and single-member inputs are handled', () => {
-  const start = Date.UTC(2023, 0, 1), end = Date.UTC(2026, 0, 1);
-  const empty = V.valBacktest([], start, end, () => true, null);
-  assert.strictEqual(empty.count, 0);
-  assert.strictEqual(empty.universe, 0);
-  assert.strictEqual(empty.hitRate, null);
+test('null and empty inputs are handled', () => {
+  const start = Date.UTC(2023, 0, 1);
   assert.strictEqual(V.valForCompany(null, null), null);
   assert.strictEqual(V.valForCompany({}, {}), null);
   assert.strictEqual(V.valFundamentalsAt({}, {}, start), null);

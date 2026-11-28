@@ -171,7 +171,7 @@
   <section class="card" id="screenSec">
     <div class="eyebrow">Discover</div>
     <h2>Stock Screener <span class="tag">live query builder</span></h2>
-    <p class="desc">Filter the curated NSE universe on live ratios — or search above for any stock on screener.in. Click a column to sort, click a symbol to open the stock.</p>
+    <p class="desc">Filter the curated NSE universe on live ratios — or search above for any listed stock. Click a column to sort, click a symbol to open the stock.</p>
     <div class="loadbar noprint"><div id="loadFill"></div></div>
     <span id="loadTxt" class="muted noprint">Connecting…</span>
     <div class="presets noprint" id="presets"></div>
@@ -196,20 +196,6 @@
     </div>
     <div class="tbl-scroll" id="screenTable"></div>
     <div class="pager noprint" style="margin-top:10px"><button class="btn sm ghost" id="prevPage">← Prev</button><span id="pageInfo">—</span><button class="btn sm ghost" id="nextPage">Next →</button></div>
-    <div class="bt-wrap noprint">
-      <div class="bt-head">
-        <b>Backtest this screen</b>
-        <select id="btYears" class="bt-sel">
-          <option value="1">1 year</option>
-          <option value="2">2 years</option>
-          <option value="3" selected>3 years</option>
-        </select>
-        <button class="btn sm" id="btRun">Run backtest</button>
-      </div>
-      <p class="bt-note">One equal-weight price curve of the passing stocks drives <b>both CAGR and max drawdown</b>; buy &amp; hold, using fundamentals as they were published at that date (market cap uses today's share count). Excludes dividends.
-        Survivorship bias: the universe is today's list. Past performance is not a forecast.</p>
-      <div id="btOut"></div>
-    </div>
   </section>
 
   <section class="card" id="wlSec">
@@ -224,7 +210,7 @@
 <footer>
   <div class="wrap">
     <b>Noobs Screener — live Indian market data on one page.</b><br>
-    Prices &amp; charts: Yahoo Finance (NSE, indicative, may be delayed) · Financials, ratios, shareholding, peers &amp; pros/cons: screener.in, parsed live in your browser (₹ Cr, consolidated where available). Cached briefly — hit Refresh to reload. Curated NSE universe, plus universal search across every stock on screener.in. Not investment advice.
+    Prices &amp; charts: Yahoo Finance (NSE, indicative, may be delayed) · Financials, ratios, shareholding, peers &amp; pros/cons parsed live in your browser (₹ Cr, consolidated where available). Cached briefly — hit Refresh to reload. Curated NSE universe, plus universal search across every listed stock. Not investment advice.
   </div>
 </footer>
 

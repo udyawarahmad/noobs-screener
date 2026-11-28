@@ -1,7 +1,7 @@
 'use strict';
 /* Noobs Screener — Electron main process.
-   Opens the app window, proxies HTTP requests for the renderer (so screener.in /
-   Yahoo work without any CORS problems on desktop), and keeps the watchlist +
+   Opens the app window, proxies HTTP requests for the renderer (so external
+   data sources work without any CORS problems on desktop), and keeps the watchlist +
    data cache on disk so they survive restarts. */
 const { app, BrowserWindow, ipcMain, net, shell } = require('electron');
 const fs = require('fs');

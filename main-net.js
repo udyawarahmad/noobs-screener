@@ -1,7 +1,7 @@
 'use strict';
 /* URL policy for the renderer -> main fetch bridge (main.js 'ns-fetch').
 
-   The bridge exists so screener.in/Yahoo work without CORS, but it must not be
+   The bridge exists so the data sources work without CORS, but it must not be
    an open proxy: a renderer that ever runs injected script (see the escaping
    rules in renderer/app.js) could otherwise read local files (file://), probe
    the LAN, or pull arbitrary content through the app.

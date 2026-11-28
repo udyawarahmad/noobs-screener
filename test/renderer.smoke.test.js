@@ -169,7 +169,7 @@ async function boot(opts) {
     assert.strictEqual(items.length, 0);
   });
 
-  console.log('\ntime machine (valuation + backtest)');
+  console.log('\ntime machine (valuation)');
 
   /* a compact but internally consistent company: 6 fiscal years of statements */
   function fixtureCompany(sym, name, np, priceStart, priceEnd) {
@@ -237,48 +237,69 @@ async function boot(opts) {
     assert.ok(v.pe.percentile >= 0 && v.pe.percentile <= 100, 'percentile in range');
   });
 
-  await test('backtest KPIs and stock table render from a result', () => {
-    app.window.renderBacktest({
-      count: 3, universe: 160, avgReturn: 40, cagr: 12.5, benchReturn: 20, benchCagr: 6.3,
-      maxDrawdown: -18.4, hitRate: 66.7, years: 3,
-      picks: [
-        { sym: 'A', name: 'Alpha Ltd', ret: 80, pe: 18, roe: 22 },
-        { sym: 'B', name: 'Beta Ltd', ret: 20, pe: 25, roe: 15 },
-        { sym: 'C', name: 'Gamma Ltd', ret: -10, pe: 30, roe: 9 }
-      ]
-    }, 3);
-    const out = app.doc.getElementById('btOut');
-    assert.ok(/Stocks passing\s*3 \/ 160/.test(out.textContent.replace(/\s+/g, ' ')), 'coverage shown: ' + out.textContent.slice(0, 140));
-    assert.ok(/\+12\.5%/.test(out.textContent), 'CAGR shown');
-    assert.ok(/vs NIFTY/.test(out.textContent) && /\+6\.2 pp/.test(out.textContent), 'alpha vs NIFTY: ' + out.textContent.slice(0, 200));
-    assert.ok(/-18\.4%/.test(out.textContent), 'drawdown shown');
-    assert.strictEqual(out.querySelectorAll('tbody tr').length, 3, 'picks table rows');
-    assert.ok(/Gamma/.test(out.textContent));
+  console.log('\n3.0.1: backtest removed, sticky nav, source scrub');
+
+  await test('the backtest feature is gone everywhere (HTML, app, valuation)', () => {
+    const html = fs.readFileSync(path.join(ROOT, 'renderer/index.html'), 'utf8');
+    assert.ok(!/btRun|btOut|btYears|bt-wrap|backtest/i.test(html), 'index.html has no backtest markup');
+    const appjs = fs.readFileSync(path.join(ROOT, 'renderer/app.js'), 'utf8');
+    assert.ok(!/runBacktest|renderBacktest|btKpi|ensureUniverse|valBacktest/.test(appjs), 'app.js has no backtest code');
+    const val = fs.readFileSync(path.join(ROOT, 'renderer/valuation.js'), 'utf8');
+    assert.ok(!/valBacktest|valCagr|valMaxDrawdown|valDay\b/.test(val), 'valuation.js has no backtest maths');
+    const css = fs.readFileSync(path.join(ROOT, 'renderer/theme.css'), 'utf8');
+    assert.ok(!/\.bt-/.test(css), 'theme.css has no backtest styles');
+    assert.strictEqual(app.doc.getElementById('btRun'), null, 'no Run button in the DOM');
+    assert.strictEqual(app.doc.getElementById('btOut'), null, 'no results box in the DOM');
   });
 
-  await test('backtest explains an empty result instead of showing zeros', () => {
-    app.window.renderBacktest({ count: 0, universe: 160, picks: [] }, 3);
-    const out = app.doc.getElementById('btOut');
-    assert.ok(/No stock in the universe passed/.test(out.textContent), out.textContent.slice(0, 100));
+  await test('the section nav stays sticky below the topbar (never slides under it)', () => {
+    const css = fs.readFileSync(path.join(ROOT, 'renderer/theme.css'), 'utf8');
+    const topbar = css.match(/\.topbar\{[^}]*\}/);
+    const subnav = css.match(/\.subnav\{[^}]*\}/);
+    assert.ok(topbar && /position:sticky/.test(topbar[0]), 'topbar is sticky');
+    assert.ok(subnav && /position:sticky/.test(subnav[0]), 'subnav is sticky');
+    assert.ok(subnav && /top:var\(--head-h\)/.test(subnav[0]), 'subnav parks at the header height, not top:0');
+    assert.ok(!/\.subnav\{[^}]*top:0/.test(subnav[0]), 'the old top:0 (which hid it under the header) is gone');
+    const zTop = +(topbar[0].match(/z-index:(\d+)/) || [0, 0])[1];
+    const zNav = +(subnav[0].match(/z-index:(\d+)/) || [0, 0])[1];
+    assert.ok(zTop > zNav, 'header stacks above the nav (' + zTop + ' > ' + zNav + ')');
+    assert.ok(/section\[id\]\{scroll-margin-top:calc\(var\(--head-h\) \+ 58px\)\}/.test(css), 'anchor jumps clear both bars');
+    // app.js keeps --head-h in sync with the real header height
+    assert.ok(typeof app.window.syncHeadH === 'function', 'syncHeadH exists');
+    app.window.syncHeadH();
+    const set = app.doc.documentElement.style.getPropertyValue('--head-h');
+    assert.ok(set.endsWith('px'), '--head-h is maintained as a px value: ' + JSON.stringify(set));
   });
 
-  await test('runBacktest end-to-end over a stubbed universe', async () => {
-    const a = fixtureCompany('AAA', 'Alpha Ltd', [100, 110, 120, 130, 140, 150], 100, 200);  // strong
-    const b = fixtureCompany('BBB', 'Beta Ltd', [90, 95, 100, 105, 110, 115], 200, 150);     // falling
-    app.window.CO['AAA'] = a.C; app.window.CO['BBB'] = b.C;
-    app.window.CH['AAA.NS'] = a.chart; app.window.CH['BBB.NS'] = b.chart;
-    app.window.ACTIVE_UNIVERSE.push({ sym: 'AAA', y: 'AAA.NS', sec: 'IT', n: 'Alpha Ltd' });
-    app.window.ACTIVE_UNIVERSE.push({ sym: 'BBB', y: 'BBB.NS', sec: 'IT', n: 'Beta Ltd' });
-    app.window._screenerKicked = true;   // don't kick a real 160-stock load
-    app.window._loadingAll = false;
-    app.window.S.scr = Object.assign({}, app.window.S.scr, { peMax: 1000, q: '', sector: 'ALL', onlyWL: false });
+  await test('no visible screener.in mention ships in the UI', () => {
+    const text = app.doc.body.textContent;
+    assert.ok(!/screener\.in/i.test(text), 'rendered page never names the source');
+    let html = fs.readFileSync(path.join(ROOT, 'renderer/index.html'), 'utf8');
+    html = html.replace(/<meta http-equiv="Content-Security-Policy"[^>]*>/g, '');   // the CSP must keep the real host
+    assert.ok(!/screener\.in/i.test(html), 'static markup is scrubbed (CSP aside)');
+    const footer = app.doc.querySelector('footer');
+    assert.ok(footer && !/screener\.in/i.test(footer.textContent), 'footer attribution scrubbed');
+  });
 
-    await app.window.runBacktest();
-    const out = app.doc.getElementById('btOut').textContent;
-    assert.ok(/Stocks passing\s*2 \/ 2/.test(out.replace(/\s+/g, ' ')), 'both stubs selected: ' + out.slice(0, 160));
-    assert.ok(/CAGR/.test(out), 'CAGR row present');
-    assert.ok(/Alpha Ltd/.test(out), 'winner listed');
-    assert.strictEqual(app.doc.getElementById('btRun').disabled, false, 'button re-enabled');
+  await test('an index refresh does not rebuild the screener and watchlist DOM', () => {
+    let screenerRebuilds = 0, watchRebuilds = 0;
+    const origScr = app.window.renderScreener, origWl = app.window.renderWatchlist;
+    app.window.renderScreener = () => { screenerRebuilds++; };
+    app.window.renderWatchlist = () => { watchRebuilds++; };
+    try {
+      const chart = {
+        price: 26000, dayChg: 0.4, lo52: 24000, hi52: 27000, ret1y: 8, ccy: 'INR',
+        dayHigh: 26100, dayLow: 25800, prevClose: 25900, vol: 100000,
+        pts: [{ t: Date.now() - 86400000, c: 25900, o: 25850, h: 25950, l: 25800, v: 900 },
+              { t: Date.now(), c: 26000, o: 25900, h: 26100, l: 25800, v: 1000 }]
+      };
+      app.window.renderIndex(chart, 'NIFTY 50', '^NSEI');
+    } finally {
+      app.window.renderScreener = origScr;
+      app.window.renderWatchlist = origWl;
+    }
+    assert.strictEqual(screenerRebuilds, 0, 'screener table untouched by an index paint');
+    assert.strictEqual(watchRebuilds, 0, 'watchlist untouched by an index paint');
   });
 
   console.log('\nregression: P0/P1 fixes');
@@ -314,8 +335,8 @@ async function boot(opts) {
     app.window.renderSearchDrop('REL');
     const box = app.doc.getElementById('searchDrop');
     assert.ok(box.querySelectorAll('.sd-row[data-sym]').length > 0, 'curated rows rendered');
-    // exactly what the async screener.in search does to the box
-    box.innerHTML += '<div class="sd-empty">More from screener.in</div>' +
+    // exactly what the async remote search does to the box
+    box.innerHTML += '<div class="sd-empty">More results</div>' +
       '<div class="sd-row" data-slug="EXTRA" data-name="Extra Ltd"><div><b>Extra Ltd</b></div></div>';
     const opened = [];
     const origSelect = app.window.selectStock;

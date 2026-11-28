@@ -1,7 +1,7 @@
 {
   "name": "noobs-screener",
   "productName": "Noobs Screener",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "description": "Noobs Screener — one-page Indian stock screener (live prices, financials, ratios, shareholding).",
   "main": "main.js",
   "author": "udyawarahmad",
@@ -12,7 +12,7 @@
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder --win nsis portable zip --publish never",
-    "test": "node test/net.test.js && node test/universe.test.js && node test/live.test.js && node test/persistence.test.js && node test/news.test.js && node test/valuation.test.js && node test/renderer.smoke.test.js"
+    "test": "node test/net.test.js && node test/universe.test.js && node test/live.test.js && node test/persistence.test.js && node test/news.test.js && node test/valuation.test.js && node test/pwa.test.js && node test/renderer.smoke.test.js"
   },
   "devDependencies": {
     "electron": "^45.5.0",
@@ -51,6 +51,5 @@
     "portable": {
       "artifactName": "Noobs-Screener-Portable-${version}.exe"
     }
-  },
-  "test": "node test/net.test.js && node test/universe.test.js && node test/live.test.js && node test/persistence.test.js && node test/news.test.js && node test/valuation.test.js && node test/pwa.test.js && node test/renderer.smoke.test.js"
+  }
 }

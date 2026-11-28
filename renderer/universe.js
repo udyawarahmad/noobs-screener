@@ -1,6 +1,6 @@
 'use strict';
 /* Noobs universe: real NSE-listed stocks.
-   sym = screener.in / NSE symbol, y = Yahoo Finance symbol, sec = sector, n = display name. */
+   sym = NSE symbol, y = Yahoo Finance symbol, sec = sector, n = display name. */
 var UNIVERSE = [
   { sym: 'RELIANCE', y: 'RELIANCE.NS', sec: 'Oil & Gas', n: 'Reliance Industries' },
   { sym: 'TCS', y: 'TCS.NS', sec: 'IT', n: 'Tata Consultancy Services' },
