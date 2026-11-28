@@ -5,7 +5,39 @@
    (Cache keys keep the legacy 'screenone' prefix so existing watchlists survive the rename.) */
 
 var LIVE_TTL_CO = 7 * 24 * 3600 * 1000;   // company financials: 7 days
-var LIVE_TTL_CH = 24 * 3600 * 1000;       // price history: 1 day
+var LIVE_TTL_CH = 24 * 3600 * 1000;       // price *history* (the pts array): 1 day
+var LIVE_TTL_QT = 2 * 60 * 1000;          // *displayed* quote while the market is open: 2 min
+var LIVE_TTL_QT_OFF = 15 * 60 * 1000;     // displayed quote when closed: 15 min
+
+/* Yahoo symbol -> ms when its quote was last confirmed (network fetch, or the
+   cache timestamp we trust it to). Bulk/background data keeps the 1-day TTL;
+   anything on screen goes through quoteStale()/freshChart* so "live" means live. */
+var CH_T = {};
+
+/* NSE trading hours 9:15–15:30 IST, Mon–Fri. Holidays are not modelled — a
+   refresh on a holiday just fetches identical data. `nowMs` is injectable for tests. */
+function marketOpenNow(nowMs) {
+  var d = new Date(nowMs == null ? Date.now() : nowMs);
+  // epoch -> IST wall clock: UTC + local offset + 5:30
+  var ist = new Date(d.getTime() + d.getTimezoneOffset() * 60000 + 330 * 60000);
+  var wd = ist.getDay();
+  if (wd === 0 || wd === 6) return false;
+  var mins = ist.getHours() * 60 + ist.getMinutes();
+  return mins >= 9 * 60 + 15 && mins < 15 * 60 + 30;
+}
+function quoteTtl(nowMs) { return marketOpenNow(nowMs) ? LIVE_TTL_QT : LIVE_TTL_QT_OFF; }
+function markQuote(ySym, t) { CH_T[ySym] = t || Date.now(); }
+function quoteStale(ySym, nowMs) {
+  var t = CH_T[ySym];
+  if (t == null) return true;
+  return ((nowMs == null ? Date.now() : nowMs) - t) > quoteTtl(nowMs);
+}
+/* Newest confirmation time across candidate symbols, or null. */
+function quoteTimeOf(symOrCands) {
+  var arr = Array.isArray(symOrCands) ? symOrCands : [symOrCands];
+  for (var i = 0; i < arr.length; i++) if (CH_T[arr[i]] != null) return CH_T[arr[i]];
+  return null;
+}
 
 /* Cache lives in PStore (renderer/store.js): files on disk in the desktop app,
    localStorage on the plain website. Returning {t, v} keeps the call sites as-is. */
@@ -30,9 +62,14 @@ function _getSF() {
    direct fetch -> public CORS proxy); this block used to hold a second, unused
    copy of httpText/httpJSON, which just made the file confusing. */
 /* ---------- Yahoo Finance price history ---------- */
-async function loadChart(ySym) {
+/* `force` bypasses the 1-day disk cache — used for quotes the user is looking
+   at right now (hero, index strip, watchlist) when the quote TTL has passed. */
+async function loadChart(ySym, force) {
   var key = 'ch3:' + ySym, c = liveCacheGet(key);
-  if (c && (Date.now() - c.t) < LIVE_TTL_CH) return c.v;
+  if (!force && c && (Date.now() - c.t) < LIVE_TTL_CH) {
+    CH[ySym] = c.v; markQuote(ySym, c.t);
+    return c.v;
+  }
   var j = await httpJSON('https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(ySym) + '?range=5y&interval=1d');
   var res = j && j.chart && j.chart.result && j.chart.result[0];
   if (!res) throw new Error('no market data for ' + ySym);
@@ -70,9 +107,11 @@ async function loadChart(ySym) {
     vol: m.regularMarketVolume != null ? m.regularMarketVolume : last.v,
     name: m.longName || m.shortName || ySym,
     ret1y: (last.c / back - 1) * 100, pts: pts,
-    ccy: m.currency || 'INR'
+    ccy: m.currency || 'INR',
+    qt: Date.now()          // when this quote was fetched (shown in the UI)
   };
   liveCacheSet(key, out);
+  CH[ySym] = out; markQuote(ySym, out.qt);
   return out;
 }
 
@@ -103,9 +142,39 @@ function cachedChartSym(sym) {
   for (var i = 0; i < cands.length; i++) {
     if (CH[cands[i]]) return CH[cands[i]];
     var c = liveCacheGet('ch3:' + cands[i]);
-    if (c && (Date.now() - c.t) < LIVE_TTL_CH) { CH[cands[i]] = c.v; return c.v; }
+    if (c && (Date.now() - c.t) < LIVE_TTL_CH) {
+      CH[cands[i]] = c.v; markQuote(cands[i], c.t);
+      return c.v;
+    }
   }
   return null;
+}
+
+/* ---------- quote freshness for what is ON SCREEN ----------
+   Bulk/background data (screener rows, backtest) keeps the 1-day TTL. The hero,
+   index strip and watchlist go through these so a session open all day shows
+   live prices: re-fetch when the quote is older than quoteTtl(). */
+async function freshChartY(ySym) {
+  if (CH[ySym] && !quoteStale(ySym)) return CH[ySym];
+  var c = liveCacheGet('ch3:' + ySym);
+  if (c && (Date.now() - c.t) < quoteTtl()) {
+    CH[ySym] = c.v; markQuote(ySym, c.t);
+    return c.v;
+  }
+  // nothing fresh enough → force a network fetch; on failure serve what we have
+  try { return await loadChart(ySym, true); }
+  catch (e) { return CH[ySym] || (c ? c.v : null); }
+}
+async function freshChartSym(sym) {
+  var cands = chartCands(sym), last = null;
+  for (var i = 0; i < cands.length; i++) {
+    try {
+      var ch = await freshChartY(cands[i]);
+      if (ch) return ch;
+    } catch (e) { last = e; }
+  }
+  if (last) throw last;
+  throw new Error('no market data for ' + sym);
 }
 
 /* ---------- number parsing ---------- */

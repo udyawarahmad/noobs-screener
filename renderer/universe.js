@@ -38,6 +38,7 @@ var UNIVERSE = [
   { sym: 'BAJAJ-AUTO', y: 'BAJAJ-AUTO.NS', sec: 'Auto', n: 'Bajaj Auto' },
   { sym: 'EICHERMOT', y: 'EICHERMOT.NS', sec: 'Auto', n: 'Eicher Motors' },
   { sym: 'HEROMOTOCO', y: 'HEROMOTOCO.NS', sec: 'Auto', n: 'Hero MotoCorp' },
+  { sym: 'M&M', y: 'M&M.NS', sec: 'Auto', n: 'Mahindra & Mahindra' },
   { sym: 'SONACOMS', y: 'SONACOMS.NS', sec: 'Auto Ancillary', n: 'Sona BLW Precision' },
   { sym: 'BOSCHLTD', y: 'BOSCHLTD.NS', sec: 'Auto Ancillary', n: 'Bosch' },
   { sym: 'MRF', y: 'MRF.NS', sec: 'Tyres', n: 'MRF' },
@@ -87,6 +88,7 @@ var UNIVERSE = [
   { sym: 'IEX', y: 'IEX.NS', sec: 'Exchange', n: 'Indian Energy Exchange' },
   { sym: 'CAMS', y: 'CAMS.NS', sec: 'Financial Services', n: 'Computer Age Management Services' },
   { sym: 'KFINTECH', y: 'KFINTECH.NS', sec: 'Financial Services', n: 'KFin Technologies' },
+  { sym: 'LICI', y: 'LICI.NS', sec: 'Financial Services', n: 'Life Insurance Corporation of India' },
   { sym: 'TATACONSUM', y: 'TATACONSUM.NS', sec: 'FMCG', n: 'Tata Consumer Products' },
   { sym: 'BRITANNIA', y: 'BRITANNIA.NS', sec: 'FMCG', n: 'Britannia Industries' },
   { sym: 'DABUR', y: 'DABUR.NS', sec: 'FMCG', n: 'Dabur India' },
@@ -106,7 +108,7 @@ var UNIVERSE = [
   { sym: 'PAYTM', y: 'PAYTM.NS', sec: 'Fintech', n: 'One 97 Communications (Paytm)' },
   { sym: 'SWIGGY', y: 'SWIGGY.NS', sec: 'Internet', n: 'Swiggy' },
   { sym: 'NYKAA', y: 'NYKAA.NS', sec: 'Internet', n: 'FSN E-Commerce (Nykaa)' },
-  { sym: 'MINDTREE', y: 'LTIM.NS', sec: 'IT', n: 'LTIMindtree' },
+  { sym: 'LTIM', y: 'LTIM.NS', sec: 'IT', n: 'LTIMindtree' },
   { sym: 'TECHM', y: 'TECHM.NS', sec: 'IT', n: 'Tech Mahindra' },
   { sym: 'PERSISTENT', y: 'PERSISTENT.NS', sec: 'IT', n: 'Persistent Systems' },
   { sym: 'COFORGE', y: 'COFORGE.NS', sec: 'IT', n: 'Coforge' },
@@ -165,9 +167,11 @@ var UNIVERSE = [
   { sym: 'INDUSTOWER', y: 'INDUSTOWER.NS', sec: 'Telecom', n: 'Indus Towers' },
   { sym: 'IDEA', y: 'IDEA.NS', sec: 'Telecom', n: 'Vodafone Idea' }
 ];
-var ALT_SLUG = { ETERNAL: ['ZOMATO'] };
+/* Old slugs that should keep working (renames/mergers): a watchlist from an
+   earlier build may still hold MINDTREE or ZOMATO. */
+var ALT_SLUG = { ETERNAL: ['ZOMATO'], MINDTREE: ['LTIM'] };
 /* Yahoo fallbacks if a primary symbol is delisted/renamed, e.g. corporate actions. */
-var ALT_Y = {};
+var ALT_Y = { MINDTREE: ['LTIM.NS'] };
 var SECTORS_SRC = UNIVERSE.filter(function (u) { return !u.skip; });
 var ACTIVE_UNIVERSE = SECTORS_SRC;
 var SECTORS = Array.from(new Set(ACTIVE_UNIVERSE.map(function (u) { return u.sec; }))).sort();

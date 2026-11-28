@@ -84,7 +84,7 @@ It is a **plain static web app** (`renderer/`) wrapped in a thin **Electron** sh
 ### Market-wide
 
 - **Index strip** — NIFTY 50, SENSEX, NIFTY BANK, USD/INR and Gold, live. Click any of them to load its chart and stats into the Overview.
-- **Universal search** — the curated universe appears instantly; anything else is looked up live on screener.in's search API, so you can open *any* listed Indian company, not just the 161 in the list.
+- **Universal search** — the curated universe appears instantly; anything else is looked up live on screener.in's search API, so you can open *any* listed Indian company, not just the 163 in the list.
 - **Screener** — 11 filters, 13 sortable columns, 7 one-click presets, a human-readable query preview, CSV export and a backtester.
 - **Watchlist** — star any stock (including ones you found via universal search); it survives restarts.
 - **Light / dark theme**, remembered between sessions.
@@ -239,16 +239,18 @@ webPreferences: { contextIsolation: true, nodeIntegration: false }
 
 ## Caching
 
-Nothing is fetched twice in the same day if it can be avoided.
+Price *history* is fetched once a day; the price you are *looking at* refreshes every couple of minutes while the market is open.
 
 | Data | TTL | Cache key |
 |---|---|---|
 | Company page (financials, ratios, shareholding, peers, pros/cons) | **7 days** | `co:<SYMBOL>` |
-| Price history | **1 day** | `ch3:<YAHOO_SYMBOL>` |
+| Price history (the multi-year `pts` series) | **1 day** | `ch3:<YAHOO_SYMBOL>` |
+| **Displayed quote** (hero, index strip, watchlist) | **2 min** while the NSE is open (9:15–15:30 IST, Mon–Fri), **15 min** otherwise | same chart records, re-fetched on view and every 2 min |
 | News | **45 minutes** (a *miss* is remembered for only 5 minutes, so a flaky network recovers) | `news:<SYMBOL>` |
 
 Clever bits worth knowing:
 
+- **"Live" means live.** A window left open from 9:30 to 15:30 keeps ticking: the hero, index strip and watchlist re-confirm their quotes every 2 minutes during market hours (and the freshness stamp says exactly *when* — no bare "live" claims). Screener rows and backtests stay on the 1-day history cache so they never trigger a 163-stock refetch storm.
 - **Refresh** clears the *data cache only*. Your watchlist and theme are never touched.
 - The news empty-state is cached briefly on purpose — otherwise the card would hammer three feeds on every open.
 - Legacy cache keys keep the old `screenone` prefix so watchlists from earlier versions keep working.
@@ -352,7 +354,7 @@ All of these are stated in the UI too:
 
 The screener card filters the curated universe on live ratios.
 
-**Universe:** 161 stocks across 36 sectors (the file holds 162 entries; one superseded pre-demerger Tata Motors row is skipped).
+**Universe:** 163 stocks across 36 sectors (the file holds 164 entries; one superseded pre-demerger Tata Motors row is skipped).
 
 ### Filters
 
@@ -382,7 +384,7 @@ Columns: Symbol · Company · CMP ₹ · M.Cap Cr · P/E · ROE% · ROCE% · Div
 - **Export results CSV** downloads `noobs_results.csv`. The header **Export** button downloads `<SYMBOL>_financials.csv` for the open stock.
 - Missing values render as `…` while loading and `–` when genuinely unavailable — never as zero.
 
-**Lazy loading:** the 161-stock bulk load is deferred until the screener card scrolls within 300 px of the viewport (or you touch a filter). Opening the app to look at one stock never triggers a 161-company download.
+**Lazy loading:** the 163-stock bulk load is deferred until the screener card scrolls within 300 px of the viewport (or you touch a filter). Opening the app to look at one stock never triggers a 163-company download.
 
 ---
 
@@ -413,13 +415,14 @@ Anything else is dropped. If nothing matches, the card says so — it never pads
 
 Startup was treated as a feature, not an afterthought:
 
-- **Only the stock you open is fetched at startup.** The 161-stock screener load waits for the screener card to approach the viewport (`IntersectionObserver`, 300 px margin) or for you to touch a filter.
+- **Only the stock you open is fetched at startup.** The 163-stock screener load waits for the screener card to approach the viewport (`IntersectionObserver`, 300 px margin) or for you to touch a filter. (Your watchlist quotes load right away — a handful of requests, 3 at a time.)
 - **Cache-first rendering.** Cached stocks paint straight from disk with no network round-trip, and the cache survives restarts.
 - **No white flash.** The window is created with `show: false` and revealed on `ready-to-show`.
 - **Cheaper paints on desktop.** The desktop build adds `body.native`, which swaps the sticky bars' `backdrop-filter` blur for solid surfaces — the single most expensive thing to repaint on Windows.
 - **Parallel fetches.** Company data and price history for the open stock are requested together.
 - **Batched table repaints.** During the bulk load, arriving stocks coalesce into at most a few repaints per second instead of one per stock.
 - **Gentle concurrency.** Bulk financials load 3 at a time with a 250 ms gap and one retry; price history loads 6 at a time.
+- **Live quote refresh.** The hero, index strip and watchlist re-confirm their quotes every 2 minutes while the NSE is open (and when the tab comes back into view), so a session left open all day never shows a frozen price. The refresh yields to the bulk load and sleeps when the tab is hidden.
 - **Deferred index strip.** Rendered 250 ms after the base DOM so the stock hero paints first.
 - **Canvas everywhere.** Charts are hand-drawn on `<canvas>` (no chart library), with `devicePixelRatio` scaling and pointer hover/touch tooltips.
 
@@ -435,7 +438,7 @@ Startup was treated as a feature, not an afterthought:
 
 ## Tests
 
-Four suites, **62 checks**, all plain Node — no test framework to install beyond `npm install`:
+Seven suites, **96 checks**, all plain Node — no test framework to install beyond `npm install`:
 
 ```bash
 npm install     # once; installs jsdom for the smoke test
@@ -446,10 +449,13 @@ npm test
 
 | Suite | Checks | Covers |
 |---|---|---|
+| `test/net.test.js` | 7 | the renderer→main fetch bridge policy: the app's own data hosts pass, `file://` / `javascript:` / LAN / arbitrary hosts are blocked with safe reasons |
+| `test/universe.test.js` | 7 | universe data quality: well-formed entries, no duplicates, `.NS` Yahoo symbols, **M&M and LICI present**, LTIMindtree keyed by its real slug, skip flags, sector list consistency |
+| `test/live.test.js` | 9 | quote freshness: NSE market-hours detection (9:15–15:30 IST, Mon–Fri), 2-min/15-min quote TTLs vs the 1-day history TTL, force-refetch, stale fallback when the network dies, BSE symbol fallback |
 | `test/persistence.test.js` | 13 | disk store round-trips, atomic writes, key sanitisation and collisions, cache trimming, legacy profile migration, watchlist durability with a huge cache, web `localStorage` fallback — plus regressions for the old "watchlist disappeared" quota bug |
-| `test/news.test.js` | 12 | RSS/Atom parsing, CDATA and entity decoding, junk input, feed fallback order, caching, and the strict relevance rules (including "never fall back to unrelated headlines") |
+| `test/news.test.js` | 14 | RSS/Atom parsing, CDATA and entity decoding, junk input, feed fallback order, caching, the strict relevance rules (including "never fall back to unrelated headlines"), and alias keys matching real symbols (`BAJAJ-AUTO`, `M&M`, `LTIM`) |
 | `test/valuation.test.js` | 22 | real TCS and HDFC Bank figures, month-end parsing, the 90-day lag, column-order independence, bank "Borrowing" handling, point-in-time fundamentals, CAGR/drawdown, and **fuzzing** — 300 random companies and 200 random portfolios are checked to never produce `NaN`, impossible percentages or out-of-range statistics |
-| `test/renderer.smoke.test.js` | 15 | boots the **real** `index.html` in jsdom with network stubbed to fail, then asserts: no uncaught errors, watchlist painted from disk, starring persists immediately, theme persists, startup does **not** bulk-load the universe, desktop blur is off, news renders safe external links, the valuation card shows P/E, P/B and a percentile chip, and a full backtest runs end-to-end |
+| `test/renderer.smoke.test.js` | 24 | boots the **real** `index.html` in jsdom with network stubbed to fail, then asserts: no uncaught errors, watchlist painted from disk, starring persists immediately, theme persists, startup does **not** bulk-load the universe, desktop blur is off, news renders safe external links, the valuation card shows P/E, P/B and a percentile chip, a full backtest runs end-to-end — **plus the P0/P1 regression pack**: true YoY quarterly growth, search-dropdown clicks surviving remote appends, symbol escaping / hostile-slug rejection, safe retry buttons (no inline `onclick`), live sector dropdown, the CSP meta tag, and the honest freshness stamp |
 
 Individual suites can be run directly:
 
@@ -556,7 +562,8 @@ Delete `cache/` (safe, re-downloaded on demand) — or delete the whole data fol
 - Screener.in is scraped as HTML; if they change their markup, a parser will need updating. That's why parsers are defensive and label-based.
 - Financials are **consolidated where available**, standalone otherwise — the stock header tells you which.
 - Prices are indicative and may be delayed by the exchange/feed.
-- The curated universe is 161 large/mid-caps; universal search covers everything else but bulk screening does not.
+- Market-hours detection is weekday-based (NSE 9:15–15:30 IST, Mon–Fri). Exchange holidays aren't modelled — on a holiday the refresh just fetches identical data.
+- The curated universe is 163 large/mid-caps; universal search covers everything else but bulk screening does not. (The list is hand-maintained — report a missing NIFTY name as an issue and it's a one-line fix; an automated NSE-CSV generator is on the roadmap.)
 - Backtests carry survivorship bias and exclude dividends (see [Honest limits](#honest-limits)).
 - No fundamentals for indices; clicking an index switches to a chart-only view.
 - The `zip`/`portable` targets are Windows-specific. Building for macOS/Linux is not configured.

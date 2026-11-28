@@ -4,17 +4,23 @@
   "version": "2.0.0",
   "description": "Noobs Screener — one-page Indian stock screener (live prices, financials, ratios, shareholding).",
   "main": "main.js",
-  "author": "",
+  "author": "udyawarahmad",
   "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder --win nsis portable zip --publish never",
-    "test": "node test/persistence.test.js && node test/news.test.js && node test/valuation.test.js && node test/renderer.smoke.test.js"
+    "test": "node test/net.test.js && node test/universe.test.js && node test/live.test.js && node test/persistence.test.js && node test/news.test.js && node test/valuation.test.js && node test/renderer.smoke.test.js"
   },
   "devDependencies": {
-    "electron": "^33.2.0",
-    "electron-builder": "^25.1.8",
+    "electron": "^45.5.0",
+    "electron-builder": "^26.18.0",
     "jsdom": "^31.0.1"
+  },
+  "overrides": {
+    "minimatch": "^11.0.9"
   },
   "build": {
     "appId": "com.noobs.screener",
@@ -22,6 +28,7 @@
     "files": [
       "main.js",
       "main-store.js",
+      "main-net.js",
       "preload.js",
       "renderer/**/*",
       "assets/**/*",
