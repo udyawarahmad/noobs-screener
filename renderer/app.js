@@ -251,7 +251,7 @@ function renderSearchDrop(q) {
   var my = ++_searchSeq;
   clearTimeout(_searchT);
   _searchT = setTimeout(function () {
-    httpText('https://www.screener.in/api/company/search/?q=' + encodeURIComponent(q.trim()), true).then(function (txt) {
+    httpText('https://www.screener.in/api/company/search/?q=' + encodeURIComponent(q.trim())).then(function (txt) {
       if (my !== _searchSeq) return;
       if ($('searchInput').value !== q || box.getAttribute('data-q') !== q) return;
       var arr;
@@ -362,17 +362,19 @@ function renderStockHead(C, CH) {
   }
   $('dayStats').innerHTML = ds.map(function (d) { return '<div><span>' + d[0] + '</span><b>' + d[1] + '</b></div>'; }).join('');
   var fEl = $('freshStamp');
-  if (fEl) {
-    var parts = [];
-    var fd = C.fetchedAt ? 'Financials as of ' + new Date(C.fetchedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : null;
-    if (fd) parts.push(fd);
-    // honest stamp: say exactly when the quote was confirmed, never a bare "live"
-    var qt = quoteTimeOf(chartCands(C.sym));
-    if (qt) parts.push('prices as of ' + asOfTime(qt));
-    else if (CH == null) parts.push('price from screener.in (chart unavailable)');
-    fEl.textContent = parts.join(' · ');
-  }
+  if (fEl) fEl.textContent = freshStampText(C, CH);
   renderAbout(C);
+}
+/* The freshness line under the hero: says exactly when each part was confirmed —
+   never a bare "live" (B3). Shared with the 2-min market-hours refresh. */
+function freshStampText(C, CH) {
+  var parts = [];
+  var fd = C && C.fetchedAt ? 'Financials as of ' + new Date(C.fetchedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : null;
+  if (fd) parts.push(fd);
+  var qt = quoteTimeOf(chartCands(C.sym));
+  if (qt) parts.push('prices as of ' + asOfTime(qt));
+  else if (CH == null) parts.push('price from screener.in (chart unavailable)');
+  return parts.join(' · ');
 }
 function shortVol(v) {
   if (v >= 10000000) return (v / 10000000).toFixed(2) + ' Cr';
@@ -978,7 +980,6 @@ function universeCounts() {
   });
   return { have: have, need: need };
 }
-function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 async function ensureUniverse(onProgress) {
   kickScreenerLoad();
   var idleRounds = 0;
@@ -1172,6 +1173,84 @@ function queryPreview() {
   if (f.onlyWL) p.push('in Watchlist');
   if (f.q.trim()) p.push('matches "' + f.q.trim() + '"');
   return p.length ? p.join('  AND  ') : 'All stocks (no filters)';
+}
+/* ---------------- shareable view links ----------------
+   Encode the current screener query (filters + sort) into ?q= so any screen
+   can be shared as a URL. Only non-default fields are encoded (short links),
+   and every field is validated before it touches the DOM — a hostile payload
+   follows the same boundary rules as openSlug. */
+var SCR_DEFAULTS = {
+  q: '', sector: 'ALL', mcapMin: 0, peMax: 1000, roeMin: -100, roceMin: -100,
+  dyMin: 0, deMax: 99, gsMin: -100, gpMin: -100, opmMin: 0,
+  onlyWL: false, sort: 'mcap', dir: -1
+};
+function shareStateObj() {
+  readScreenerInputs();
+  var f = S.scr, o = {};
+  Object.keys(SCR_DEFAULTS).forEach(function (k) { if (f[k] !== SCR_DEFAULTS[k]) o[k] = f[k]; });
+  return o;
+}
+function encodeShareState() {
+  try {
+    return btoa(unescape(encodeURIComponent(JSON.stringify(shareStateObj()))))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  } catch (e) { return ''; }
+}
+function b64urlDecode(s) {
+  s = String(s).replace(/-/g, '+').replace(/_/g, '/');
+  while (s.length % 4) s += '=';
+  return decodeURIComponent(escape(atob(s)));
+}
+function applyShareState(q) {
+  if (!q) return false;
+  var s;
+  try { s = JSON.parse(b64urlDecode(q)); } catch (e) { return false; }
+  if (!s || typeof s !== 'object' || Array.isArray(s)) return false;
+  var v = {};
+  if (typeof s.q === 'string' && s.q.length <= 80) v.q = s.q;
+  if (typeof s.sector === 'string' && (s.sector === 'ALL' || SECTORS.indexOf(s.sector) >= 0)) v.sector = s.sector;
+  var nums = {
+    mcapMin: [0, 1e9], peMax: [0, 1e6], roeMin: [-100, 100], roceMin: [-100, 100],
+    dyMin: [0, 100], deMax: [0, 100], gsMin: [-100, 1000], gpMin: [-100, 1000], opmMin: [0, 100]
+  };
+  Object.keys(nums).forEach(function (k) {
+    if (typeof s[k] === 'number' && isFinite(s[k]) && s[k] >= nums[k][0] && s[k] <= nums[k][1]) v[k] = s[k];
+  });
+  if (s.onlyWL === true) v.onlyWL = true;
+  if (typeof s.sort === 'string' && /^[a-z][a-z0-9]{0,11}$/.test(s.sort)) v.sort = s.sort;
+  if (s.dir === 1 || s.dir === -1) v.dir = s.dir;
+  if (!Object.keys(v).length) return false;
+  resetScreenerInputs();                       // DOM + S.scr back to defaults
+  Object.keys(v).forEach(function (k) { S.scr[k] = v[k]; });
+  syncSectorOptions();                         // rebuild the sector select (B12)
+  $('f_q').value = S.scr.q;
+  $('f_mcap').value = S.scr.mcapMin > 0 ? S.scr.mcapMin : '';
+  $('f_pe').value = S.scr.peMax < 1000 ? S.scr.peMax : '';
+  $('f_roe').value = S.scr.roeMin > -100 ? S.scr.roeMin : '';
+  $('f_roce').value = S.scr.roceMin > -100 ? S.scr.roceMin : '';
+  $('f_dy').value = S.scr.dyMin > 0 ? S.scr.dyMin : '';
+  $('f_de').value = S.scr.deMax < 99 ? S.scr.deMax : '';
+  $('f_gs').value = S.scr.gsMin > -100 ? S.scr.gsMin : '';
+  $('f_gp').value = S.scr.gpMin > -100 ? S.scr.gpMin : '';
+  $('f_opm').value = S.scr.opmMin > 0 ? S.scr.opmMin : '';
+  $('f_onlyWL').checked = !!S.scr.onlyWL;
+  S.scr.page = 0;
+  return true;
+}
+function shareUrl() {
+  var base = String(location.href).split('?')[0].split('#')[0];
+  var q = encodeShareState();
+  return q ? base + '?q=' + q : base;
+}
+function fallbackCopy(t) {
+  try {
+    var ta = document.createElement('textarea');
+    ta.value = t; ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+  } catch (e) {}
 }
 var SCR_COLS = [
   ['sym', 'Symbol'], ['name', 'Company'], ['price', 'CMP ₹'], ['mcap', 'M.Cap Cr'],
@@ -1418,6 +1497,8 @@ function tickLiveQuotes() {
         if (!C) return;
         LAST_CH = ch;
         renderStockHead(C, ch); drawPriceChart(ch); renderVal(C, ch);
+        var fsEl = $('freshStamp');
+        if (fsEl) fsEl.textContent = freshStampText(C, ch);
       }).catch(function () {}));
     })(S.sym);
   } else if (S.mode === 'index' && S.index) {
@@ -1530,6 +1611,9 @@ function init() {
   // desktop build: swap the blurred sticky bars for solid ones (cheaper to paint)
   if (typeof PStore !== 'undefined' && PStore.isDisk) document.body.classList.add('native');
   $('themeBtn').textContent = S.theme === 'dark' ? 'Light' : 'Dark';
+  // a shared link (?q=...) restores the screen it was copied from — before the
+  // first render so the query preview and table open already filtered
+  try { applyShareState(new URLSearchParams(location.search).get('q')); } catch (e) {}
   renderPresets();
   renderScreener(); renderWatchlist();
   showSkeletons();
@@ -1556,7 +1640,17 @@ function init() {
   si.addEventListener('keydown', function (e) {
     if (e.key === 'Enter') {
       var hits = ACTIVE_UNIVERSE.filter(function (u) { return matches(si.value, u.sym); });
-      if (hits.length) selectStock(hits[0].sym);
+      if (hits.length) { selectStock(hits[0].sym); return; }
+      // Enter must also open the top *remote* hit (B20) — anything the
+      // screener.in search appended to the dropdown, not just curated names.
+      var box = $('searchDrop');
+      var row = box && !box.hidden ? box.querySelector('.sd-row') : null;
+      if (row) {
+        var sym = row.getAttribute('data-sym');
+        if (sym && validSym(sym)) { selectStock(sym); return; }
+        var slug = row.getAttribute('data-slug');
+        if (slug) openSlug(slug, row.getAttribute('data-name') || slug);
+      }
     }
   });
   Array.prototype.forEach.call(document.querySelectorAll('.rngBtn'), function (b) {
@@ -1590,9 +1684,18 @@ function init() {
   $('resetBtn').addEventListener('click', function () { resetScreenerInputs(); renderScreener(); });
   $('copyQueryBtn').addEventListener('click', function () {
     var t = queryPreview();
-    if (navigator.clipboard) navigator.clipboard.writeText(t);
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).catch(function () { fallbackCopy(t); });
+    else fallbackCopy(t);
     $('copyQueryBtn').textContent = 'Copied ✓';
     setTimeout(function () { $('copyQueryBtn').textContent = 'Copy query'; }, 1500);
+  });
+  var sv = $('shareViewBtn');
+  if (sv) sv.addEventListener('click', function () {
+    var url = shareUrl();
+    var done = function () { flashBtn('shareViewBtn', 'Link copied ✓'); };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(done, function () { fallbackCopy(url); done(); });
+    } else { fallbackCopy(url); done(); }
   });
   $('prevPage').addEventListener('click', function () { if (S.scr.page > 0) { S.scr.page--; renderScreener(); } });
   $('nextPage').addEventListener('click', function () { S.scr.page++; renderScreener(); });
@@ -1626,20 +1729,40 @@ function init() {
   var _io = $('installOverlay'); if (_io) _io.addEventListener('click', function (e) { if (e.target === _io) _io.hidden = true; });
   var _ig = $('installGoBtn'); if (_ig) _ig.addEventListener('click', nativeInstall);
   var links = Array.prototype.slice.call(document.querySelectorAll('.subnav a'));
-  window.addEventListener('scroll', function () {
-    var best = null;
-    links.forEach(function (a) {
-      var el = document.querySelector(a.getAttribute('href'));
-      if (el && el.getBoundingClientRect().top < 140) best = a;
-    });
-    links.forEach(function (a) { a.classList.toggle('on', a === best); });
-  }, { passive: true });
-  window.addEventListener('resize', function () {
-    if (LAST_CH) drawPriceChart(LAST_CH);
-    var vc = CO[S.sym] || cachedCompany(S.sym);
-    if (vc && S.mode === 'stock') renderVal(vc, chartOf(S.sym));
-    var C = CO[S.sym] || cachedCompany(S.sym);
-    if (C && S.mode === 'stock') { drawFinChart(C); renderSH(C); }
+  // resolve the section elements ONCE — the old handler ran 13 querySelectors
+  // on every scroll event (B20)
+  var spyTargets = links.map(function (a) {
+    return { a: a, el: document.querySelector(a.getAttribute('href')) };
   });
+  var raf = window.requestAnimationFrame || function (fn) { return setTimeout(fn, 16); };
+  var spyRaf = 0;
+  window.addEventListener('scroll', function () {
+    if (spyRaf) return;
+    spyRaf = raf(function () {
+      spyRaf = 0;
+      var best = null;
+      spyTargets.forEach(function (t) {
+        if (t.el && t.el.getBoundingClientRect().top < 140) best = t.a;
+      });
+      links.forEach(function (a) { a.classList.toggle('on', a === best); });
+    });
+  }, { passive: true });
+  // debounce redraws: a drag across sizes must not redraw three charts per pixel (B20)
+  var resizeT = null;
+  window.addEventListener('resize', function () {
+    clearTimeout(resizeT);
+    resizeT = setTimeout(function () {
+      if (LAST_CH) drawPriceChart(LAST_CH);
+      var vc = CO[S.sym] || cachedCompany(S.sym);
+      if (vc && S.mode === 'stock') renderVal(vc, chartOf(S.sym));
+      var C = CO[S.sym] || cachedCompany(S.sym);
+      if (C && S.mode === 'stock') { drawFinChart(C); renderSH(C); }
+    }, 150);
+  }, { passive: true });
+  // Website PWA: a tiny offline shell (B18). Skipped on file:// (Electron) and
+  // wherever service workers don't exist (jsdom/tests).
+  if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
+    try { navigator.serviceWorker.register('sw.js').catch(function () {}); } catch (e) {}
+  }
 }
 document.addEventListener('DOMContentLoaded', init);

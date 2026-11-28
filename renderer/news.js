@@ -227,7 +227,7 @@ async function loadNews(C) {
   var lastErr = null;
   for (var i = 0; i < feeds.length; i++) {
     try {
-      var xml = await httpText(feeds[i].url, true);
+      var xml = await httpText(feeds[i].url);
       var items = newsRelevant(parseNewsXml(xml), C);
       if (items.length) {
         var res = { items: items.slice(0, 12), source: feeds[i].label, at: Date.now() };

@@ -291,6 +291,25 @@ test('equal-weight portfolio: returns, hit rate, benchmark and drawdown', () => 
   assert.strictEqual(res.picks[0].sym, 'A', 'sorted best first');
 });
 
+test('B15: CAGR and drawdown come from the same equity curve', () => {
+  const start = Date.UTC(2023, 0, 1), end = Date.UTC(2026, 0, 1);
+  const mid = start + (end - start) / 2;
+  const members = [
+    { sym: 'A', C: TCS, chart: flatChart(start, end, 100, 200) },           // full window, +100%
+    { sym: 'B', C: TCS, chart: flatChart(start, mid, 100, 100) }            // stops trading at mid
+  ];
+  const res = V.valBacktest(members, start, end, () => true, null);
+  assert.strictEqual(res.count, 2, 'both are picks');
+  // The old code computed CAGR from the mean of per-stock returns (1.5^(1/3))
+  // while maxDrawdown came from the curve — two constructions in one KPI row.
+  // The curve's final average only includes the stock still trading (2.0), so
+  // curve-based CAGR is ~26% here and must NOT be the old ~14.5%.
+  near(res.cagr, (Math.pow(2, 1 / res.years) - 1) * 100, 0.05, 'CAGR from the equity curve');
+  const oldMeanCagr = (Math.pow(1.5, 1 / 3) - 1) * 100;
+  assert.ok(Math.abs(res.cagr - oldMeanCagr) > 5, 'no longer the mean-of-returns number (' + res.cagr.toFixed(1) + ')');
+  assert.ok(res.maxDrawdown <= 0 && res.maxDrawdown > -100, 'drawdown from the same curve');
+});
+
 test('the screen predicate decides who is in the portfolio', () => {
   const start = Date.UTC(2023, 0, 1), end = Date.UTC(2026, 0, 1);
   const members = [

@@ -189,7 +189,7 @@
       <div><label>OPM above %</label><input id="f_opm" type="number" min="0" placeholder="e.g. 15"></div>
       <div class="checkline"><input type="checkbox" id="f_onlyWL"><label for="f_onlyWL">Watchlist only</label></div>
     </div>
-    <div class="querybar"><code id="queryPreview">—</code><button class="btn sm ghost noprint" id="copyQueryBtn">Copy query</button><button class="btn sm ghost noprint" id="resetBtn">Reset</button></div>
+    <div class="querybar"><code id="queryPreview">—</code><button class="btn sm ghost noprint" id="copyQueryBtn">Copy query</button><button class="btn sm ghost noprint" id="shareViewBtn">Share view</button><button class="btn sm ghost noprint" id="resetBtn">Reset</button></div>
     <div class="screen-meta">
       <b id="countEl">—</b>
       <div style="display:flex;gap:8px"><button class="btn sm ghost noprint" id="exportScreenBtn">Export results CSV</button></div>
@@ -206,7 +206,7 @@
         </select>
         <button class="btn sm" id="btRun">Run backtest</button>
       </div>
-      <p class="bt-note">Equal-weight, buy &amp; hold, using fundamentals as they were published at that date (market cap uses today's share count). Excludes dividends.
+      <p class="bt-note">One equal-weight price curve of the passing stocks drives <b>both CAGR and max drawdown</b>; buy &amp; hold, using fundamentals as they were published at that date (market cap uses today's share count). Excludes dividends.
         Survivorship bias: the universe is today's list. Past performance is not a forecast.</p>
       <div id="btOut"></div>
     </div>

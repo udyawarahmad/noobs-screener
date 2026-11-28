@@ -52,15 +52,6 @@ function liveCacheClear() {
   try { PStore.cacheClear(); } catch (e) {}
 }
 
-function _getSF() {
-  try { if (typeof superFetch === 'function') return superFetch; } catch (e) {}
-  try { if (typeof root !== 'undefined' && root && root.superFetch) return function (u, o) { return root.superFetch(u, o); }; } catch (e) {}
-  return null;
-}
-
-/* NOTE: the live fetch layer lives further down (Electron main-process proxy ->
-   direct fetch -> public CORS proxy); this block used to hold a second, unused
-   copy of httpText/httpJSON, which just made the file confusing. */
 /* ---------- Yahoo Finance price history ---------- */
 /* `force` bypasses the 1-day disk cache — used for quotes the user is looking
    at right now (hero, index strip, watchlist) when the quote TTL has passed. */
@@ -80,17 +71,23 @@ async function loadChart(ySym, force) {
   var opens = q.open || [], highs = q.high || [], lows = q.low || [], vols = q.volume || [];
   var kAdj = [];
   for (var ka = 0; ka < ts.length; ka++) {
-    var qc = (q.close && q.close[ka] != null) ? q.close[ka] : null;
-    kAdj.push(qc ? adj[ka] / qc : 1);
+    var qc = (q.close && Number.isFinite(q.close[ka])) ? q.close[ka] : null;
+    var ac = Number.isFinite(adj[ka]) ? adj[ka] : null;
+    kAdj.push(qc && ac && qc !== 0 ? ac / qc : 1);
   }
   var pts = [];
   for (var i = 0; i < ts.length; i++) {
-    if (ts[i] && adj[i] != null) pts.push({
-      t: ts[i] * 1000, c: adj[i],
-      o: opens[i] != null ? opens[i] * kAdj[i] : null,
-      h: highs[i] != null ? highs[i] * kAdj[i] : null,
-      l: lows[i] != null ? lows[i] * kAdj[i] : null,
-      v: vols[i] || 0
+    var c = adj[i];
+    // Drop gaps and garbage — `adj[i] != null` lets NaN through (NaN != null),
+    // and one short Yahoo array must not poison min/max and blank the chart.
+    if (!ts[i] || !Number.isFinite(c) || c <= 0) continue;
+    var kA = kAdj[i];
+    pts.push({
+      t: ts[i] * 1000, c: c,
+      o: Number.isFinite(opens[i]) ? opens[i] * kA : null,
+      h: Number.isFinite(highs[i]) ? highs[i] * kA : null,
+      l: Number.isFinite(lows[i]) ? lows[i] * kA : null,
+      v: Number.isFinite(vols[i]) ? vols[i] : 0
     });
   }
   if (!pts.length) throw new Error('empty price history for ' + ySym);
@@ -401,7 +398,7 @@ async function loadCompany(sym) {
     for (var fi = 0; fi < suffixes.length; fi++) {
       try {
         var url = 'https://www.screener.in/company/' + slugs[si] + suffixes[fi];
-        var html = await httpText(url, true);
+        var html = await httpText(url);
         if (!html || html.indexOf('top-ratios') < 0) continue;
         var parsed = parseCompany(html, sym);
         parsed.consolidated = suffixes[fi] !== '/';
@@ -444,7 +441,7 @@ function _withTimeout(ms) {
 /* ---------- standalone fetch layer (GitHub/Electron build) ----------
    Order: Electron main-process proxy (no CORS) -> direct fetch (Yahoo
    allows it) -> public CORS-proxy fallback (plain static hosting). */
-async function httpText(url, preferProxy) {
+async function httpText(url) {
   try { if (typeof window !== "undefined" && window.electronFetch) {
     var er = await window.electronFetch(url);
     if (er && er.ok !== false && typeof er.body === "string") return er.body;
