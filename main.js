@@ -7,6 +7,7 @@ const { app, BrowserWindow, ipcMain, net, shell } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const { createStore, copyLegacyLocalStorage } = require('./main-store');
+const { fetchBlockReason } = require('./main-net');
 
 /* Portable build: keep app data next to the .exe, so the watchlist survives
    restarts and travels with the file. Read-only location -> fall back to the
@@ -26,10 +27,15 @@ const { createStore, copyLegacyLocalStorage } = require('./main-store');
 })();
 
 let store = null;
+let win = null;
 
 function registerIpc() {
   // Renderer -> main fetch proxy (Node has no CORS restrictions).
+  // Restricted to an allowlist (main-net.js): this must never become a
+  // file:// reader or a LAN probe if injected script ever runs in the renderer.
   ipcMain.handle('ns-fetch', async (_event, url) => {
+    const blocked = fetchBlockReason(url);
+    if (blocked) return { ok: false, status: 0, body: '', error: 'blocked: ' + blocked };
     try {
       const res = await net.fetch(String(url));
       const body = await res.text();
@@ -57,7 +63,7 @@ function registerIpc() {
 }
 
 function createWindow() {
-  const win = new BrowserWindow({
+  win = new BrowserWindow({
     width: 1280,
     height: 860,
     minWidth: 360,
@@ -87,20 +93,34 @@ function createWindow() {
   // win.webContents.openDevTools(); // uncomment while debugging
 }
 
-app.whenReady().then(() => {
-  try {
-    store = createStore(app.getPath('userData'));
-    store.trimCache();
-  } catch (e) {
-    // Extremely unlikely, but never leave the app without a store.
-    store = createStore(path.join(app.getPath('temp') || '.', 'noobs-screener'));
-  }
-  registerIpc();
-  createWindow();
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+/* Single instance: two copies of the app would share state.json and cache/ with
+   independent in-memory copies — last writer wins, so a watchlist edit in one
+   window could be erased by the other flushing. */
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (win && !win.isDestroyed()) {
+      if (win.isMinimized()) win.restore();
+      win.focus();
+    }
   });
-});
+  app.whenReady().then(() => {
+    try {
+      store = createStore(app.getPath('userData'));
+      store.trimCache();
+    } catch (e) {
+      // Extremely unlikely, but never leave the app without a store.
+      store = createStore(path.join(app.getPath('temp') || '.', 'noobs-screener'));
+    }
+    registerIpc();
+    createWindow();
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    });
+  });
+}
 
 // Make sure nothing queued is lost when the window closes.
 app.on('before-quit', () => { if (store) store.flush(); });

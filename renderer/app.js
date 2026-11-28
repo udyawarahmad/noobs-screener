@@ -9,7 +9,8 @@ var S = {
 try {
   S.wl = JSON.parse(PStore.getState('screenone_wl', '[]') || '[]');
   if (!Array.isArray(S.wl)) S.wl = [];
-  S.wl = S.wl.filter(function (x) { return typeof x === 'string' && x; });
+  // drop anything that isn't a real symbol (old state, hand-edited localStorage)
+  S.wl = S.wl.filter(function (x) { return typeof x === 'string' && validSym(x); });
 } catch (e) { S.wl = []; }
 try { var _t = PStore.getState('screenone_theme', ''); if (_t) S.theme = _t; } catch (e) {}
 
@@ -92,33 +93,43 @@ async function ensureChart(sym) {
   if (hit) return hit;
   var ch = await loadChartSym(sym);
   CH[yOf(sym)] = ch;
+  markQuote(yOf(sym));
   return ch;
 }
 function chartOf(sym) { return cachedChartSym(sym); }
 
 /* ---------------- header / market indices ---------------- */
+var INDEX_ITEMS = [
+  ['NIFTY 50', '^NSEI'], ['SENSEX', '^BSESN'], ['NIFTY BANK', '^NSEBANK'], ['USD / Inr', 'INR=X'], ['Gold', 'GC=F']
+];
+function paintIdx(x, ch) {
+  var el = document.querySelector('.idx[data-y="' + x[1] + '"]');
+  if (!el || !ch || !ch.pts.length) return;
+  var l = ch.pts[ch.pts.length - 1].c, p = ch.pts.length > 1 ? ch.pts[ch.pts.length - 2].c : l;
+  var c = (l / p - 1) * 100;
+  el.innerHTML = '<span class="idx-n">' + x[0] + '</span><b>' + inr1(l) + '</b><span class="' + numCls(c) + '">' + pct1(c) + '</span>';
+}
 function renderIndices() {
-  var items = [
-    ['NIFTY 50', '^NSEI'], ['SENSEX', '^BSESN'], ['NIFTY BANK', '^NSEBANK'], ['USD / Inr', 'INR=X'], ['Gold', 'GC=F']
-  ];
-  $('indicesStrip').innerHTML = items.map(function (x) {
-    return '<div class="idx" data-y="' + x[1] + '"><span class="idx-n">' + x[0] + '</span><b>…</b><span class="muted">live</span></div>';
+  $('indicesStrip').innerHTML = INDEX_ITEMS.map(function (x) {
+    return '<div class="idx" data-y="' + x[1] + '"><span class="idx-n">' + x[0] + '</span><b>…</b><span class="muted">…</span></div>';
   }).join('');
-  items.forEach(function (x) {
+  INDEX_ITEMS.forEach(function (x) {
     var el0 = document.querySelector('.idx[data-y="' + x[1] + '"]');
     if (el0) el0.addEventListener('click', function () { enterIndexMode(x[1], x[0]); });
-    loadChart(x[1]).then(function (ch) {
-      var el = document.querySelector('.idx[data-y="' + x[1] + '"]');
-      if (!el || !ch || !ch.pts.length) return;
-      var l = ch.pts[ch.pts.length - 1].c, p = ch.pts.length > 1 ? ch.pts[ch.pts.length - 2].c : l;
-      var c = (l / p - 1) * 100;
-      el.innerHTML = '<span class="idx-n">' + x[0] + '</span><b>' + inr1(l) + '</b><span class="' + numCls(c) + '">' + pct1(c) + '</span>';
-    }).catch(function () { /* leave placeholder */ });
+    // first paint honours the short quote TTL too — a strip that says nothing
+    // about age should never show yesterday's close as today's
+    freshChartY(x[1]).then(function (ch) { paintIdx(x, ch); }).catch(function () { /* leave placeholder */ });
   });
+}
+function refreshIndices() {
+  return Promise.all(INDEX_ITEMS.map(function (x) {
+    return freshChartY(x[1]).then(function (ch) { paintIdx(x, ch); }).catch(function () {});
+  }));
 }
 /* Clicking a market index loads its live chart + stats into the Overview. */
 async function enterIndexMode(ySym, label, skipScroll) {
   S.mode = 'index'; S.index = { y: ySym, label: label };
+  LAST_CH = null;                 // range buttons must not draw the *stock* chart here
   FIN_SECTIONS.forEach(function (id) { $(id).hidden = true; });
   var note = $('indexNote'); if (note) note.hidden = false;
   var sc = document.querySelector('.star-col'); if (sc) sc.style.display = 'none';
@@ -130,8 +141,9 @@ async function enterIndexMode(ySym, label, skipScroll) {
   $('w52wrap').innerHTML = ''; $('dayStats').innerHTML = ''; $('metricsGrid').innerHTML = skel(140);
   if (!skipScroll) document.getElementById('stockSec').scrollIntoView({ behavior: 'smooth', block: 'start' });
   try {
-    var ch = CH[ySym] || await loadChart(ySym);
-    CH[ySym] = ch; LAST_CH = ch;
+    var ch = await freshChartY(ySym);
+    if (!ch) throw new Error('no market data for ' + ySym);
+    CH[ySym] = ch;
     if (S.mode !== 'index' || !S.index || S.index.y !== ySym) return;
     renderIndex(ch, label, ySym);
   } catch (e) {
@@ -176,10 +188,14 @@ function renderIndex(CHd, label, ySym) {
   var rEl = $('stRange');
   rEl.textContent = '52W Low ' + money(CHd.lo52, ccy) + ' · 52W High ' + money(CHd.hi52, ccy) + ' · 1Y ' + pct1(CHd.ret1y);
   rEl.className = numCls(CHd.ret1y);
-  var pos = (CHd.price - CHd.lo52) / (CHd.hi52 - CHd.lo52) * 100;
-  pos = Math.min(100, Math.max(0, pos));
-  $('w52wrap').innerHTML = '<div class="w52"><div class="w52-track"><div class="w52-mark" style="left:' + pos.toFixed(1) + '%"></div></div>' +
-    '<div class="w52-lab"><span>Low ' + money(CHd.lo52, ccy) + '</span><span>High ' + money(CHd.hi52, ccy) + '</span></div></div>';
+  // 52-week bar — same guard as the stock header: a flat range must not produce NaN%
+  var w52 = '';
+  if (CHd.lo52 != null && CHd.hi52 > CHd.lo52 && CHd.price != null) {
+    var pos = Math.min(100, Math.max(0, (CHd.price - CHd.lo52) / (CHd.hi52 - CHd.lo52) * 100));
+    w52 = '<div class="w52"><div class="w52-track"><div class="w52-mark" style="left:' + pos.toFixed(1) + '%"></div></div>' +
+      '<div class="w52-lab"><span>Low ' + money(CHd.lo52, ccy) + '</span><span>High ' + money(CHd.hi52, ccy) + '</span></div></div>';
+  }
+  $('w52wrap').innerHTML = w52;
   var lp = CHd.pts[CHd.pts.length - 1];
   var ds = [['Open', money(lp.o, ccy)],
     ['Day High', money(CHd.dayHigh, ccy)],
@@ -188,9 +204,18 @@ function renderIndex(CHd, label, ySym) {
     ['Volume', CHd.vol != null && CHd.vol > 0 ? shortVol(CHd.vol) : '–']];
   $('dayStats').innerHTML = ds.map(function (d) { return '<div><span>' + d[0] + '</span><b>' + d[1] + '</b></div>'; }).join('');
   $('metricsGrid').innerHTML = indexMetricCards(CHd);
-  var fEl = $('freshStamp'); if (fEl) fEl.textContent = 'Index data · Yahoo Finance (indicative, may be delayed)';
+  var fEl = $('freshStamp');
+  if (fEl) {
+    var qt = quoteTimeOf(ySym);
+    fEl.textContent = 'Index data' + (qt ? ' as of ' + asOfTime(qt) : '') + ' · Yahoo Finance (indicative, may be delayed)';
+  }
   drawPriceChart(CHd);
   renderScreener(); renderWatchlist();
+}
+/* "15:32" — used in the freshness stamps so the UI never claims a bare "live". */
+function asOfTime(ms) {
+  try { return new Date(ms).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }); }
+  catch (e) { return new Date(ms).toTimeString().slice(0, 5); }
 }
 /* ---------------- search ---------------- */
 function nameOf(sym) {
@@ -213,14 +238,14 @@ function renderSearchDrop(q) {
     box.hidden = false;
     box.innerHTML = hits.map(function (u) {
       var hit = cachedChartSym(u.sym);
-      return '<div class="sd-row" data-sym="' + u.sym + '"><div><b>' + esc(nameOf(u.sym)) + '</b><span class="sd-sym">' + u.sym + ' · ' + esc(u.sec) + '</span></div>' +
+      return '<div class="sd-row" data-sym="' + esc(u.sym) + '"><div><b>' + esc(nameOf(u.sym)) + '</b><span class="sd-sym">' + esc(u.sym) + ' · ' + esc(u.sec) + '</span></div>' +
         '<div class="sd-p">' + (hit ? '₹' + inr1(hit.price) : 'live…') + '</div></div>';
     }).join('');
   }
   box.setAttribute('data-q', q);
-  Array.prototype.forEach.call(box.querySelectorAll('.sd-row[data-sym]'), function (el) {
-    el.addEventListener('mousedown', function (e) { e.preventDefault(); selectStock(el.getAttribute('data-sym')); });
-  });
+  // NOTE: no per-row listeners here — the box is rewritten (and appended to)
+  // by the async screener.in search below, which would destroy them. One
+  // delegated mousedown listener in bindSearchDrop() handles every row.
   // universal search: anything on screener.in, not just the curated universe
   if (q.trim().length < 2) return;
   var my = ++_searchSeq;
@@ -254,14 +279,26 @@ function renderSearchDrop(q) {
         return '<div class="sd-row" data-slug="' + esc(x.slug) + '" data-name="' + esc(x.name) + '"><div><b>' + esc(x.name) + '</b><span class="sd-sym">' + esc(x.slug) + ' · screener.in</span></div>' +
           '<div class="sd-p">' + (hit ? '₹' + inr1(hit.price) : '') + '</div></div>';
       }).join('');
-      Array.prototype.forEach.call(box.querySelectorAll('.sd-row[data-slug]'), function (el) {
-        el.addEventListener('mousedown', function (e) { e.preventDefault(); openSlug(el.getAttribute('data-slug'), el.getAttribute('data-name')); });
-      });
+      // rows are handled by the delegated listener in bindSearchDrop()
     }).catch(function () {
       if (my !== _searchSeq) return;
       if (!hits.length && $('searchInput').value === q) box.innerHTML = '<div class="sd-empty">No matches</div>';
     });
   }, 350);
+}
+/* One delegated listener for the whole dropdown: rows are re-created (and
+   appended to) on every keystroke and again when the remote search resolves,
+   so per-row listeners would be destroyed by each innerHTML write. */
+function bindSearchDrop() {
+  var box = $('searchDrop');
+  if (!box) return;
+  box.addEventListener('mousedown', function (e) {
+    var row = e.target && e.target.closest ? e.target.closest('.sd-row') : null;
+    if (!row) return;
+    e.preventDefault();            // beat the blur that hides the box
+    if (row.hasAttribute('data-sym')) selectStock(row.getAttribute('data-sym'));
+    else if (row.hasAttribute('data-slug')) openSlug(row.getAttribute('data-slug'), row.getAttribute('data-name'));
+  });
 }
 
 /* ---------------- stock detail ---------------- */
@@ -326,8 +363,14 @@ function renderStockHead(C, CH) {
   $('dayStats').innerHTML = ds.map(function (d) { return '<div><span>' + d[0] + '</span><b>' + d[1] + '</b></div>'; }).join('');
   var fEl = $('freshStamp');
   if (fEl) {
-    var fd = C.fetchedAt ? new Date(C.fetchedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : null;
-    fEl.textContent = fd ? 'Financials as of ' + fd + ' · prices live' : 'Prices live';
+    var parts = [];
+    var fd = C.fetchedAt ? 'Financials as of ' + new Date(C.fetchedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : null;
+    if (fd) parts.push(fd);
+    // honest stamp: say exactly when the quote was confirmed, never a bare "live"
+    var qt = quoteTimeOf(chartCands(C.sym));
+    if (qt) parts.push('prices as of ' + asOfTime(qt));
+    else if (CH == null) parts.push('price from screener.in (chart unavailable)');
+    fEl.textContent = parts.join(' · ');
   }
   renderAbout(C);
 }
@@ -341,11 +384,16 @@ function slugOfUrl(url) {
   var m = String(url || '').match(/\/company\/([^\/]+)/);
   return m ? m[1].toUpperCase() : null;
 }
+/* Symbols arrive from a remote search API (and historically from persisted
+   state). Only NSE/screener-style slugs may reach the DOM or the loaders —
+   this is the boundary that keeps a hostile response from breaking out of an
+   attribute or a URL. Covers RELIANCE, BAJAJ-AUTO, M&M, 3MINDIA, 500325. */
+function validSym(s) { return typeof s === 'string' && /^[A-Z0-9&._-]{1,30}$/.test(s); }
 /* Open any screener.in stock by slug (search results, peers, BSE-only codes, ...).
    Curated symbols use the fast path; everything else gets an ephemeral universe entry. */
 function openSlug(slug, name) {
   slug = String(slug || '').toUpperCase();
-  if (!slug) return;
+  if (!validSym(slug)) return;
   if (UNI[slug]) { selectStock(slug); return; }
   UNI[slug] = { sym: slug, y: null, sec: '', n: name || slug };
   S.sym = slug; S.mode = 'stock'; S.index = null;
@@ -360,7 +408,7 @@ function openSlug(slug, name) {
 }
 window.openSlug = openSlug;
 function selectStock(sym) {
-  if (!UNI[sym]) return;
+  if (!validSym(sym) || !UNI[sym]) return;
   S.sym = sym; S.mode = 'stock'; S.index = null;
   FIN_SECTIONS.forEach(function (id) { $(id).hidden = false; });
   var note = $('indexNote'); if (note) note.hidden = true;
@@ -377,7 +425,9 @@ async function loadAndRender(sym) {
     // company page and price history are independent -> fetch together
     var pair = await Promise.all([
       ensureCompany(sym),
-      ensureChart(sym).catch(function () { return null; })
+      // the hero is what the user is looking at — honour the short quote TTL,
+      // not the 1-day history TTL (freshChartSym falls back to whatever exists)
+      freshChartSym(sym).catch(function () { return null; })
     ]);
     var C = pair[0], CH = pair[1];
     if (S.sym !== sym) return;
@@ -413,8 +463,12 @@ function renderStockError(sym, e) {
   $('stPrice').textContent = '–';
   var msg = '<div class="errbox"><b>Could not load live data for ' + esc(sym) + '.</b><br><span class="muted">' +
     esc((e && e.message) || 'network error') + ' — check your connection and retry.</span><br>' +
-    '<button class="btn sm" onclick="selectStock(\'' + sym + '\')">Retry</button></div>';
+    '<button class="btn sm" data-retry="' + esc(sym) + '">Retry</button></div>';
   ['qTable', 'pnlTable', 'bsTable', 'cfTable', 'ratTable', 'shTable', 'peersTable'].forEach(function (id) { $(id).innerHTML = msg; });
+  // a real listener instead of an inline onclick attribute (CSP-safe, quote-safe)
+  Array.prototype.forEach.call(document.querySelectorAll('#qTable [data-retry], #pnlTable [data-retry], #bsTable [data-retry], #cfTable [data-retry], #ratTable [data-retry], #shTable [data-retry], #peersTable [data-retry]'), function (b) {
+    b.addEventListener('click', function () { selectStock(b.getAttribute('data-retry')); });
+  });
   drawEmpty($('priceChart'), 'No chart data');
 }
 window.selectStock = selectStock;
@@ -568,6 +622,10 @@ function finTableHTML(T, opts) {
   if (!T || !T.rows.length) return '<p class="muted pad">Not disclosed for this company.</p>';
   var n = opts.cols || 8;
   var cols = T.cols.slice(-n), off = T.cols.length - cols.length;
+  // Growth compares against the column `growthStep` places back: 1 = previous
+  // period (annual P&L → true YoY), 4 = same quarter last year (quarterly
+  // table → true YoY; the old code always used 1 and mislabelled QoQ as YoY).
+  var gStep = opts.growthStep || 1;
   var h = '<table class="fin"><thead><tr><th class="sticky">' + esc(opts.first || 'Metric') + '</th>';
   cols.forEach(function (c) { h += '<th class="num">' + esc(c) + '</th>'; });
   h += '</tr></thead><tbody>';
@@ -576,11 +634,11 @@ function finTableHTML(T, opts) {
     for (var i = 0; i < cols.length; i++) {
       var raw = r.vals[off + i], nv = r.nums[off + i];
       var sub = null, cls = '';
-      if (opts.growth && shouldGrow(r.label) && i > 0) {
-        var pv = r.nums[off + i - 1];
+      if (opts.growth && shouldGrow(r.label) && i >= gStep) {
+        var pv = r.nums[off + i - gStep];
         if (nv != null && pv) { var g = (nv / pv - 1) * 100; sub = (g >= 0 ? '+' : '') + g.toFixed(1) + '% YoY'; cls = numCls(g); }
       }
-      h += '<td class="num">' + esc(raw === '' ? '–' : raw) + (sub ? '<div class="sub ' + cls + '">' + sub + '</div>' : '') + '</td>';
+      h += '<td class="num">' + esc(raw == null || raw === '' ? '–' : raw) + (sub ? '<div class="sub ' + cls + '">' + sub + '</div>' : '') + '</td>';
     }
     h += '</tr>';
   });
@@ -650,7 +708,7 @@ function renderPeers(C) {
   });
 }
 function renderStatements(C) {
-  $('qTable').innerHTML = finTableHTML(C.quarters, { cols: 8, growth: true, first: 'Metric · ₹ Cr' }) +
+  $('qTable').innerHTML = finTableHTML(C.quarters, { cols: 8, growth: true, growthStep: 4, first: 'Metric · ₹ Cr' }) +
     '<p class="tbl-note">Quarterly figures in ₹ Cr. Source: screener.in (consolidated where available).</p>';
   var T = C.pnl, n = 8, note = '';
   if (T && T.cols.length > n) note = 'Showing latest ' + n + ' periods (scroll table for more). ';
@@ -675,8 +733,13 @@ function drawFinChart(C) {
     ? (findRow(C.pnl, ['sales']) || findRow(C.pnl, ['total income']) || findRow(C.pnl, ['revenue']) || findRow(C.pnl, ['interest earned']))
     : findRow(C.pnl, ['net profit']);
   var name = row ? row.label : '';
-  var data = row ? row.nums.filter(function (v) { return v != null; }).slice(-10) : [];
-  var labels = C.pnl.cols.slice(-data.length);
+  // pair each value with ITS OWN column label before dropping nulls — filtering
+  // first and slicing the labels separately misaligned every bar after a gap
+  var pairs = [];
+  if (row) row.nums.forEach(function (v, i) { if (v != null) pairs.push({ v: v, lab: C.pnl.cols[i] }); });
+  pairs = pairs.slice(-10);
+  var data = pairs.map(function (p) { return p.v; });
+  var labels = pairs.map(function (p) { return p.lab; });
   if (!data.length) { drawEmpty(c, name ? 'No numeric series for ' + name : 'No revenue series for this company'); return; }
   var box = fitCanvas(c, 220), ctx = box.ctx, W = box.w, H = box.h;
   var max = Math.max.apply(null, data.map(Math.abs)) * 1.15 || 1;
@@ -1115,12 +1178,24 @@ var SCR_COLS = [
   ['pe', 'P/E'], ['roe', 'ROE%'], ['roce', 'ROCE%'], ['dy', 'Div%'], ['de', 'D/E'],
   ['gs', 'SalesGr%'], ['gp', 'ProfitGr%'], ['ret1y', '1Y%'], ['wl', '★']
 ];
+/* Rebuild the sector <select> whenever the sector list changes — it used to be
+   filled exactly once, so sectors discovered while browsing (or added to
+   SECTORS later) could never be filtered on. */
+function syncSectorOptions() {
+  var secSel = $('f_sector');
+  if (!secSel) return;
+  var want = ['ALL'].concat(SECTORS);
+  var sig = JSON.stringify(want);
+  if (secSel.getAttribute('data-sig') === sig) { secSel.value = S.scr.sector; return; }
+  secSel.innerHTML = '<option value="ALL">All sectors</option>' + SECTORS.map(function (x) { return '<option>' + esc(x) + '</option>'; }).join('');
+  secSel.setAttribute('data-sig', sig);
+  secSel.value = S.scr.sector;
+  if (secSel.value !== S.scr.sector) { S.scr.sector = 'ALL'; secSel.value = 'ALL'; }
+}
 function renderScreener() {
   var f = S.scr;
+  syncSectorOptions();
   var secSel = $('f_sector');
-  if (!secSel.options.length) {
-    secSel.innerHTML = '<option value="ALL">All sectors</option>' + SECTORS.map(function (x) { return '<option>' + esc(x) + '</option>'; }).join('');
-  }
   secSel.value = f.sector;
   $('queryPreview').textContent = queryPreview();
   var nf = (f.sector !== 'ALL' ? 1 : 0) + (f.mcapMin > 0 ? 1 : 0) + (f.peMax < 1000 ? 1 : 0) +
@@ -1146,7 +1221,7 @@ function renderScreener() {
     var u = r.u, d = r.fund || {}, ch = r.ch;
     var stared = S.wl.indexOf(u.sym) >= 0;
     h += '<tr>' +
-      '<td class="sticky"><a class="peerlink" data-sym="' + u.sym + '"><b>' + u.sym + '</b></a></td>' +
+      '<td class="sticky"><a class="peerlink" data-sym="' + esc(u.sym) + '"><b>' + esc(u.sym) + '</b></a></td>' +
       '<td class="sticky2">' + esc(nameOf(u.sym)) + '</td>' +
       '<td class="num">' + (ch ? inr1(ch.price) : (d.price != null ? inr1(d.price) : '<span class="muted">…</span>')) + '</td>' +
       '<td class="num">' + (d.mcap != null ? inr0(d.mcap) : '<span class="muted">…</span>') + '</td>' +
@@ -1158,7 +1233,7 @@ function renderScreener() {
       '<td class="num">' + cell(d.gs, true) + '</td>' +
       '<td class="num">' + cell(d.gp, true) + '</td>' +
       '<td class="num">' + (ch ? '<span class="' + numCls(ch.ret1y) + '">' + pct1(ch.ret1y) + '</span>' : '<span class="muted">…</span>') + '</td>' +
-      '<td class="num"><button class="star sm2" data-wl="' + u.sym + '">' + (stared ? '★' : '☆') + '</button></td>' +
+      '<td class="num"><button class="star sm2" data-wl="' + esc(u.sym) + '">' + (stared ? '★' : '☆') + '</button></td>' +
       '</tr>';
   });
   h += '</tbody></table>';
@@ -1309,9 +1384,9 @@ function renderWatchlist() {
   box.innerHTML = S.wl.map(function (sym) {
     var ch = chartOf(sym), C = CO[sym] || cachedCompany(sym);
     var nm = C ? C.name : nameOf(sym);
-    return '<div class="wl-card" data-sym="' + sym + '"><div><b>' + sym + '</b><span>' + esc(nm) + '</span></div>' +
+    return '<div class="wl-card" data-sym="' + esc(sym) + '"><div><b>' + esc(sym) + '</b><span>' + esc(nm) + '</span></div>' +
       '<div class="wl-p">' + (ch ? '₹' + inr1(ch.price) + ' <i class="' + numCls(ch.dayChg) + '">' + pct1(ch.dayChg) + '</i>' : 'live…') + '</div>' +
-      '<button class="star sm2" data-unwl="' + sym + '">★</button></div>';
+      '<button class="star sm2" data-unwl="' + esc(sym) + '">★</button></div>';
   }).join('');
   Array.prototype.forEach.call(box.querySelectorAll('.wl-card'), function (el) {
     el.addEventListener('click', function (e) {
@@ -1322,6 +1397,53 @@ function renderWatchlist() {
   Array.prototype.forEach.call(box.querySelectorAll('[data-unwl]'), function (b) {
     b.addEventListener('click', function (e) { e.stopPropagation(); toggleWL(b.getAttribute('data-unwl')); });
   });
+}
+
+/* ---------------- live quote refresh ----------------
+   Everything the user is *looking at* (hero, index strip, watchlist) is
+   re-confirmed every couple of minutes while the market is open, so a window
+   left open from 9:30 to 15:30 shows moving prices instead of a frozen first
+   fetch. Background data (screener rows, backtest) keeps its 1-day TTL. */
+var LIVE_TICK_MS = 2 * 60 * 1000;
+function tickLiveQuotes() {
+  if (typeof document !== 'undefined' && document.hidden) return Promise.resolve();
+  if (_loadingAll) return Promise.resolve();           // never compete with the bulk load
+  if (typeof marketOpenNow === 'function' && !marketOpenNow()) return Promise.resolve();
+  var jobs = [];
+  if (S.mode === 'stock' && S.sym) {
+    (function (sym) {
+      jobs.push(freshChartSym(sym).then(function (ch) {
+        if (!ch || S.mode !== 'stock' || S.sym !== sym) return;
+        var C = CO[sym] || cachedCompany(sym);
+        if (!C) return;
+        LAST_CH = ch;
+        renderStockHead(C, ch); drawPriceChart(ch); renderVal(C, ch);
+      }).catch(function () {}));
+    })(S.sym);
+  } else if (S.mode === 'index' && S.index) {
+    (function (y, lab) {
+      jobs.push(freshChartY(y).then(function (ch) {
+        if (!ch || S.mode !== 'index' || !S.index || S.index.y !== y) return;
+        LAST_CH = ch;
+        renderIndex(ch, lab, y);
+      }).catch(function () {}));
+    })(S.index.y, S.index.label);
+  }
+  jobs.push(refreshIndices());
+  S.wl.forEach(function (sym) {
+    jobs.push(freshChartSym(sym).catch(function () { return null; }));
+  });
+  return Promise.all(jobs).then(function () { renderWatchlist(); });
+}
+function startLiveTick() {
+  if (typeof setInterval !== 'function') return;
+  setInterval(function () { try { tickLiveQuotes(); } catch (e) {} }, LIVE_TICK_MS);
+  // coming back to the tab should immediately show current prices
+  if (typeof document !== 'undefined' && document.addEventListener) {
+    document.addEventListener('visibilitychange', function () {
+      if (!document.hidden) { try { tickLiveQuotes(); } catch (e) {} }
+    });
+  }
 }
 
 /* ---------------- install (PWA / add-to-home-screen) ---------------- */
@@ -1355,26 +1477,42 @@ function downloadCSV(name, heads, lines) {
   a.href = URL.createObjectURL(blob); a.download = name; a.click();
   setTimeout(function () { URL.revokeObjectURL(a.href); }, 4000);
 }
+/* Brief inline button feedback — exports used to fail silently. */
+function flashBtn(id, txt) {
+  var b = $(id); if (!b) return;
+  var old = b.getAttribute('data-old') || b.textContent;
+  b.setAttribute('data-old', old);
+  b.textContent = txt;
+  clearTimeout(b._flashT);
+  b._flashT = setTimeout(function () { b.textContent = old; }, 1600);
+}
 function exportScreener() {
   var rows = screenRows();
   var lines = rows.map(function (r) {
     var d = r.fund || {}, ch = r.ch;
     function q(s) { return '"' + String(s == null ? '' : s).replace(/"/g, '') + '"'; }
-    return [r.u.sym, q(nameOf(r.u.sym)), r.u.sec, ch ? ch.price.toFixed(1) : '', d.mcap == null ? '' : d.mcap,
+    return [r.u.sym, q(nameOf(r.u.sym)), q(r.u.sec), ch && ch.price != null ? ch.price.toFixed(1) : '', d.mcap == null ? '' : d.mcap,
       d.pe == null ? '' : d.pe, d.roe == null ? '' : d.roe, d.roce == null ? '' : d.roce, d.dy == null ? '' : d.dy,
       d.de == null ? '' : d.de.toFixed(2), d.gs == null ? '' : d.gs.toFixed(1), d.gp == null ? '' : d.gp.toFixed(1),
-      ch ? ch.ret1y.toFixed(1) : ''].join(',');
+      ch && ch.ret1y != null ? ch.ret1y.toFixed(1) : ''].join(',');
   });
   downloadCSV('noobs_results.csv', ['Symbol', 'Company', 'Sector', 'CMP', 'MCap_Cr', 'PE', 'ROE', 'ROCE', 'DivYld', 'DE', 'SalesGr3Y', 'ProfitGr3Y', 'Ret1Y'], lines);
 }
 function exportStock() {
   var C = CO[S.sym] || cachedCompany(S.sym);
-  if (!C || !C.pnl) return;
-  var lines = C.pnl.cols.map(function (L, i) {
-    function col(row) { return row ? row.vals[i].replace(/,/g, '') : ''; }
-    return [L, col(findRow(C.pnl, ['sales'])), col(findRow(C.pnl, ['operating profit'])), col(findRow(C.pnl, ['net profit'])), col(findRow(C.pnl, ['eps']))].join(',');
-  });
-  downloadCSV(C.sym + '_financials.csv', ['Period', 'Sales_Cr', 'OpProfit_Cr', 'NetProfit_Cr', 'EPS'], lines);
+  if (!C || !C.pnl) { flashBtn('exportStockBtn', 'No data'); return; }
+  try {
+    var lines = C.pnl.cols.map(function (L, i) {
+      // rows can be shorter than the header (screener tables aren't uniform) —
+      // a missing cell used to throw and kill the whole export silently
+      function col(row) { var v = row && row.vals ? row.vals[i] : null; return v == null ? '' : String(v).replace(/,/g, ''); }
+      return [L, col(findRow(C.pnl, ['sales'])), col(findRow(C.pnl, ['operating profit'])), col(findRow(C.pnl, ['net profit'])), col(findRow(C.pnl, ['eps']))].join(',');
+    });
+    downloadCSV(C.sym + '_financials.csv', ['Period', 'Sales_Cr', 'OpProfit_Cr', 'NetProfit_Cr', 'EPS'], lines);
+    flashBtn('exportStockBtn', 'Saved ✓');
+  } catch (e) {
+    flashBtn('exportStockBtn', 'Export failed');
+  }
 }
 
 /* ---------------- theme / init ---------------- */
@@ -1396,11 +1534,21 @@ function init() {
   renderScreener(); renderWatchlist();
   showSkeletons();
   loadAndRender(S.sym);
+  // watchlist prices shouldn't wait for the bulk screener load or for each
+  // stock to be opened — fetch them right away (gentle concurrency)
+  if (S.wl.length && typeof mapLimit === 'function') {
+    mapLimit(S.wl, 3, function (sym) { return freshChartSym(sym); })
+      .then(function () { renderWatchlist(); })
+      .catch(function () {});
+  }
   // the index strip is secondary: let the stock hero paint first
   setTimeout(renderIndices, 250);
+  // keep displayed quotes fresh while the market is open (see tickLiveQuotes)
+  startLiveTick();
   // The 160-stock bulk load only starts when the screener card comes into view
   // (or the user touches its filters). It never competes with the first paint.
   setupScreenerLazyLoad();
+  bindSearchDrop();
   var si = $('searchInput');
   si.addEventListener('input', function () { renderSearchDrop(si.value); });
   si.addEventListener('focus', function () { renderSearchDrop(si.value); });
@@ -1448,8 +1596,13 @@ function init() {
   });
   $('prevPage').addEventListener('click', function () { if (S.scr.page > 0) { S.scr.page--; renderScreener(); } });
   $('nextPage').addEventListener('click', function () { S.scr.page++; renderScreener(); });
-  $('exportScreenBtn').addEventListener('click', exportScreener);
-  $('exportStockBtn').addEventListener('click', exportStock);
+  $('exportScreenBtn').addEventListener('click', function () {
+    try { exportScreener(); flashBtn('exportScreenBtn', 'Saved ✓'); }
+    catch (e) { flashBtn('exportScreenBtn', 'Export failed'); }
+  });
+  $('exportStockBtn').addEventListener('click', function () {
+    try { exportStock(); } catch (e) { flashBtn('exportStockBtn', 'Export failed'); }
+  });
   $('themeBtn').addEventListener('click', function () { setTheme(S.theme === 'dark' ? 'light' : 'dark'); });
   $('refreshBtn').addEventListener('click', function () {
     var lt = $('loadTxt');
@@ -1457,7 +1610,7 @@ function init() {
       if (lt) lt.textContent = 'A load is already in progress…';
     } else {
       if (typeof liveCacheClear === 'function') liveCacheClear();
-      CO = {}; CH = {};
+      CO = {}; CH = {}; CH_T = {};
       _screenerKicked = true;
       if (lt) lt.textContent = 'Cache cleared — reloading live…';
       loadAllData();

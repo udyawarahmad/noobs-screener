@@ -208,5 +208,29 @@ test('matches full name, all key words, ticker and press short forms', () => {
   });
 });
 
+test('alias keys match real symbols: BAJAJ-AUTO, M&M, LTIM (B13)', () => {
+  const { newsKeys } = loadNews();
+  // the old raw lookup missed every key that differed from the symbol by
+  // '-' vs '_' (BAJAJ_AUTO) or that simply wasn't the symbol (LTIM vs MINDTREE)
+  const bajaj = newsKeys({ sym: 'BAJAJ-AUTO', name: 'Bajaj Auto' });
+  assert.ok(bajaj.aliases.includes('bajaj auto'), JSON.stringify(bajaj.aliases));
+  const mm = newsKeys({ sym: 'M&M', name: 'Mahindra & Mahindra' });
+  assert.ok(mm.aliases.includes('m m'), JSON.stringify(mm.aliases));
+  assert.ok(mm.aliases.includes('mahindra'), JSON.stringify(mm.aliases));
+  const ltim = newsKeys({ sym: 'LTIM', name: 'LTIMindtree' });
+  assert.ok(ltim.aliases.includes('ltimindtree'), JSON.stringify(ltim.aliases));
+  // unknown symbols simply have no aliases — never a crash
+  // (length, not deepStrictEqual: vm-realm arrays have a different prototype)
+  assert.strictEqual(newsKeys({ sym: 'ZZZZ', name: 'Zzz Ltd' }).aliases.length, 0);
+});
+
+test('M&M headline matched through the alias, not just the full name', () => {
+  const { newsRelevant } = loadNews();
+  const C = { sym: 'M&M', name: 'Mahindra & Mahindra' };
+  assert.strictEqual(newsRelevant([{ title: 'M&M shares hit record high' }], C).length, 1);
+  assert.strictEqual(newsRelevant([{ title: 'Mahindra tractor sales jump' }], C).length, 1);
+  assert.strictEqual(newsRelevant([{ title: 'Maruti Suzuki sales rise' }], C).length, 0);
+});
+
 console.log(failures ? '\n' + failures + ' test(s) failed\n' : '\nAll tests passed\n');
 process.exit(failures ? 1 : 0);

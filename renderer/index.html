@@ -3,6 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Strict CSP: scripts are the six local files only, styles may be inline
+     (the app sets style="" attributes on charts/bars), and the app only talks
+     to its four data hosts + the CORS fallback. Works for file:// (Electron)
+     and any static host. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://query1.finance.yahoo.com https://query2.finance.yahoo.com https://www.screener.in https://screener.in https://news.google.com https://www.bing.com https://feeds.finance.yahoo.com https://corsproxy.io; object-src 'none'; base-uri 'none'; form-action 'none'">
 <title>Noobs Screener — Indian Stock Screener</title>
 <meta name="description" content="Noobs Screener — one-page Indian stock screener with live prices, financials, ratios and screening.">
 <link rel="icon" type="image/png" href="icons/icon-192.png">

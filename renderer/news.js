@@ -174,14 +174,21 @@ function newsNorm(str) {
   return String(str || '').toLowerCase().replace(/&/g, ' ').replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
+/* Alias keys normalised the same way as symbols, so 'BAJAJ_AUTO' matches the
+   real symbol BAJAJ-AUTO and 'M_M' matches M&M (the raw lookup missed both). */
+var NEWS_ALIAS_NORM = (function () {
+  var o = {};
+  Object.keys(NEWS_ALIAS).forEach(function (k) { o[newsNorm(k)] = NEWS_ALIAS[k]; });
+  return o;
+})();
+
 /* Words that identify the company; falls back to the raw name for short names. */
 function newsKeys(C) {
   var name = String((C && C.name) || (C && C.sym) || '');
   var words = newsNorm(name).split(' ').filter(Boolean);
   var core = words.filter(function (w) { return NEWS_FILLER.indexOf(w) < 0; });
   var sym = String((C && C.sym) || '').toUpperCase();
-  var aliasKey = sym.replace(/&/g, '_');
-  var aliases = (NEWS_ALIAS[aliasKey] || NEWS_ALIAS[sym] || []).map(newsNorm).filter(Boolean);
+  var aliases = (NEWS_ALIAS_NORM[newsNorm(sym)] || NEWS_ALIAS[sym] || []).map(newsNorm).filter(Boolean);
   return { full: core.join(' '), core: core, sym: newsNorm(sym), aliases: aliases };
 }
 
