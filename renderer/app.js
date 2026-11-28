@@ -6,13 +6,17 @@ var S = {
   sym: 'RELIANCE', range: '1Y', finMode: 'sales', theme: 'light', wl: [],
   mode: 'stock', index: null,  scr: { q: '', sector: 'ALL', mcapMin: 0, peMax: 1000, roeMin: -100, roceMin: -100, dyMin: 0, deMax: 99, gsMin: -100, gpMin: -100, opmMin: 0, sort: 'mcap', dir: -1, page: 0, onlyWL: false }
 };
-try { S.wl = JSON.parse(localStorage.getItem('screenone_wl') || '[]'); } catch (e) { S.wl = []; }
-try { var _t = localStorage.getItem('screenone_theme'); if (_t) S.theme = _t; } catch (e) {}
+try {
+  S.wl = JSON.parse(PStore.getState('screenone_wl', '[]') || '[]');
+  if (!Array.isArray(S.wl)) S.wl = [];
+  S.wl = S.wl.filter(function (x) { return typeof x === 'string' && x; });
+} catch (e) { S.wl = []; }
+try { var _t = PStore.getState('screenone_theme', ''); if (_t) S.theme = _t; } catch (e) {}
 
 var CO = {};   // sym -> parsed company (memory)
 var CH = {};   // yahoo symbol -> chart (memory)
 var LAST_CH = null; // chart currently shown in the hero (stock or index)
-var FIN_SECTIONS = ['pcSec', 'peerSec', 'qSec', 'pnlSec', 'bsSec', 'cfSec', 'ratSec', 'shSec', 'docSec', 'aboutSec'];
+var FIN_SECTIONS = ['valSec', 'pcSec', 'newsSec', 'peerSec', 'qSec', 'pnlSec', 'bsSec', 'cfSec', 'ratSec', 'shSec', 'docSec', 'aboutSec'];
 var UNI = {};  // sym -> universe entry (curated + ephemeral search/peer opens)
 UNIVERSE.forEach(function (u) { UNI[u.sym] = u; });
 var ACTIVE_SET = {};
@@ -33,7 +37,40 @@ function inr1(v) { if (v == null || isNaN(v)) return '–'; return Number(v).toL
 function inr2(v) { if (v == null || isNaN(v)) return '–'; return Number(v).toLocaleString('en-IN', { maximumFractionDigits: 2, minimumFractionDigits: 2 }); }
 function pct1(v) { if (v == null || isNaN(v)) return '–'; return (v > 0 ? '+' : '') + Number(v).toFixed(1) + '%'; }
 function numCls(v) { return v > 0 ? 'pos' : (v < 0 ? 'neg' : ''); }
-function saveWL() { try { localStorage.setItem('screenone_wl', JSON.stringify(S.wl)); } catch (e) {} }
+function saveWL() { try { PStore.setState('screenone_wl', JSON.stringify(S.wl)); } catch (e) {} }
+/* Re-render the screener table at most a few times a second: during the bulk
+   load each arriving stock used to repaint all ~160 rows. */
+var _scrTimer = null;
+/* The screener needs data for the whole universe; loading it at startup made the
+   window sluggish for no benefit if the user only looked at a stock. */
+var _screenerKicked = false;
+function kickScreenerLoad() {
+  if (_screenerKicked) return;
+  _screenerKicked = true;
+  loadAllData();
+}
+function setupScreenerLazyLoad() {
+  var sec = $('screenSec');
+  var lt = $('loadTxt');
+  var want = ACTIVE_UNIVERSE.filter(function (u) { return !cachedCompany(u.sym); }).length;
+  if (lt && want > 0) lt.textContent = 'Live data for ' + want + ' stocks loads when this section is in view.';
+  else if (lt) lt.textContent = 'Screener data is cached and up to date.';
+  if (!want) { _screenerKicked = true; renderScreener(); return; }   // cache is warm
+  if (typeof IntersectionObserver === 'function' && sec) {
+    var io = new IntersectionObserver(function (entries) {
+      for (var i = 0; i < entries.length; i++) {
+        if (entries[i].isIntersecting) { io.disconnect(); kickScreenerLoad(); return; }
+      }
+    }, { rootMargin: '300px 0px' });
+    io.observe(sec);
+  } else {
+    setTimeout(kickScreenerLoad, 2500);
+  }
+}
+function renderScreenerSoon() {
+  if (_scrTimer) return;
+  _scrTimer = setTimeout(function () { _scrTimer = null; renderScreener(); }, 300);
+}
 function skel(h) { return '<div class="skel" style="height:' + (h || 18) + 'px"></div>'; }
 
 /* ---------------- data access ---------------- */
@@ -337,10 +374,12 @@ function selectStock(sym) {
 async function loadAndRender(sym) {
   if (S.sym !== sym) return;
   try {
-    var C = await ensureCompany(sym);
-    if (S.sym !== sym) return;
-    var CH = null;
-    try { CH = await ensureChart(sym); } catch (e) { CH = null; }
+    // company page and price history are independent -> fetch together
+    var pair = await Promise.all([
+      ensureCompany(sym),
+      ensureChart(sym).catch(function () { return null; })
+    ]);
+    var C = pair[0], CH = pair[1];
     if (S.sym !== sym) return;
     CO[sym] = C;
     // adopt screener's sector for dynamic entries; grow the sector list for everyone
@@ -364,6 +403,8 @@ function showSkeletons() {
   $('stPrice').textContent = '…';
   $('aboutText').innerHTML = skel(90);
   $('docsLinks').innerHTML = skel(60);
+  var nl = $('newsList'); if (nl) nl.innerHTML = skel(46) + skel(46) + skel(46);
+  var vg = $('valGrid'); if (vg) vg.innerHTML = skel(80) + skel(80);
 }
 function renderStockError(sym, e) {
   $('stSym').textContent = sym;
@@ -722,11 +763,258 @@ function renderAbout(C) {
     '<div><span>Face value</span><b>' + (C.fund.fv != null ? '₹' + inr1(C.fund.fv) : '–') + '</b></div>' +
     '<div><span>Yahoo symbol</span><b>' + esc(yOf(C.sym)) + '</b></div>';
 }
+function timeAgo(ms) {
+  if (!ms) return '';
+  var d = Date.now() - ms;
+  if (d < 0) return 'just now';
+  var m = Math.floor(d / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return m + 'm ago';
+  var h = Math.floor(m / 60);
+  if (h < 24) return h + 'h ago';
+  var dd = Math.floor(h / 24);
+  if (dd < 30) return dd + 'd ago';
+  return new Date(ms).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+}
+function paintNews(res) {
+  var box = $('newsList');
+  if (!box) return;
+  var tag = $('newsTag');
+  if (tag) tag.textContent = res && res.source ? 'free · ' + res.source : 'free · RSS';
+  var items = (res && res.items) || [];
+  if (!items.length) {
+    box.innerHTML = '<p class="muted news-empty">No recent headlines found for this stock right now. ' +
+      'News comes from free RSS feeds (Google News, Bing News, Yahoo Finance) — try Refresh in a minute.</p>';
+    return;
+  }
+  box.innerHTML = items.map(function (n) {
+    var meta = [n.source, timeAgo(n.t)].filter(Boolean).join(' · ');
+    return '<a class="news-item" href="' + esc(n.link) + '" target="_blank" rel="noopener noreferrer" title="' + esc(n.title) + '">' +
+      '<span class="ni-body"><span class="ni-title">' + esc(n.title) + '</span>' +
+      (meta ? '<span class="ni-meta">' + esc(meta) + '</span>' : '') + '</span>' +
+      '<span class="ni-go">↗</span></a>';
+  }).join('');
+}
+/* Show cached headlines immediately, then refresh in the background. */
+function renderNews(C) {
+  var box = $('newsList');
+  if (!box || typeof loadNews !== 'function') return;
+  var cached = null;
+  try { cached = liveCacheGet('news:' + C.sym); } catch (e) { cached = null; }
+  if (cached && cached.v) paintNews(cached.v);
+  else box.innerHTML = skel(46) + skel(46) + skel(46);
+  var sym = C.sym;
+  loadNews(C).then(function (res) {
+    if (S.sym !== sym || S.mode !== 'stock') return;
+    paintNews(res);
+  }).catch(function () {
+    if (S.sym !== sym) return;
+    paintNews({ items: [], source: '' });
+  });
+}
+/* ---------------- valuation history ---------------- */
+function valChip(pct) {
+  if (pct == null) return '';
+  var cls = pct <= 33 ? 'cheap' : (pct >= 67 ? 'rich' : 'fair');
+  var word = pct <= 33 ? 'cheaper' : (pct >= 67 ? 'dearer' : 'in line');
+  return '<span class="chip ' + cls + '">' + word + ' than ' + Math.round(pct) + '% of its history</span>';
+}
+function drawValChart(summary, label) {
+  var cv = $('valChart'); if (!cv || !summary || !summary.series || !summary.series.length) return;
+  var dpr = window.devicePixelRatio || 1;
+  var W = cv.clientWidth || 640, H = 190;
+  cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+  cv.style.height = H + 'px';
+  var ctx = cv.getContext('2d'); if (!ctx) return;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  var css = getComputedStyle(document.documentElement);
+  var muted = css.getPropertyValue('--muted') || '#6e6e73';
+  var ink = css.getPropertyValue('--ink') || '#1d1d1f';
+  var line = css.getPropertyValue('--line') || '#d2d2d7';
+  var brand = css.getPropertyValue('--brand') || '#0071e3';
+
+  var pts = summary.series;
+  var t0 = pts[0].t, t1 = pts[pts.length - 1].t;
+  var lo = Math.min(summary.min, summary.p20), hi = Math.max(summary.max, summary.p80);
+  var pad = (hi - lo) * 0.08 || 1;
+  var yMin = Math.max(0, lo - pad), yMax = hi + pad;
+  var L = 46, R = 10, T = 10, B = 22;
+  function X(t) { return L + (W - L - R) * (t - t0) / Math.max(1, t1 - t0); }
+  function Y(v) { return T + (H - T - B) * (1 - (v - yMin) / Math.max(1e-9, yMax - yMin)); }
+
+  // band lines
+  [[summary.p80, '80th'], [summary.median, 'median'], [summary.p20, '20th']].forEach(function (b) {
+    var y = Y(b[0]);
+    ctx.strokeStyle = line; ctx.setLineDash([4, 4]); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(L, y); ctx.lineTo(W - R, y); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = muted; ctx.font = '10.5px -apple-system,Segoe UI,sans-serif'; ctx.textAlign = 'right';
+    ctx.fillText(b[1], L - 6, y + 3);
+  });
+
+  // the multiple itself
+  ctx.strokeStyle = brand; ctx.lineWidth = 1.6; ctx.beginPath();
+  pts.forEach(function (p, i) { var x = X(p.t), y = Y(p.v); if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); });
+  ctx.stroke();
+
+  // current point — on the line, so the marker never floats off the series
+  var last = pts[pts.length - 1];
+  ctx.fillStyle = ink;
+  ctx.beginPath(); ctx.arc(X(last.t), Y(last.v), 3.2, 0, Math.PI * 2); ctx.fill();
+
+  ctx.fillStyle = muted; ctx.font = '10.5px -apple-system,Segoe UI,sans-serif'; ctx.textAlign = 'left';
+  if (label) ctx.fillText(label, L, T + 2);
+  ctx.fillText(new Date(t0).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }), L, H - 6);
+  ctx.textAlign = 'right';
+  ctx.fillText('now', W - R, H - 6);
+}
+function valStat(label, summary) {
+  if (!summary) {
+    return '<div class="val-stat"><div class="vs-k">' + label + '</div>' +
+      '<div class="vs-v">–</div><div class="vs-sub">Not enough history to judge.</div></div>';
+  }
+  var f = function (v) { return (v == null || !isFinite(v)) ? '–' : v.toFixed(1) + '×'; };
+  var rng = f(summary.p20) + ' – ' + f(summary.p80);
+  return '<div class="val-stat">' +
+    '<div class="vs-k">' + label + '</div>' +
+    '<div class="vs-v">' + (summary.now == null ? '–' : summary.now.toFixed(1) + '×') + '</div>' +
+    valChip(summary.percentile) +
+    '<div class="vs-sub">Median ' + summary.median.toFixed(1) + '× · usual range ' + rng +
+    '<br>' + summary.samples + ' trading days</div></div>';
+}
+function renderVal(C, chart) {
+  var grid = $('valGrid'), note = $('valNote'), tag = $('valTag');
+  if (!grid) return;
+  if (typeof valForCompany !== 'function') return;
+  var v = null;
+  try { v = valForCompany(C, chart); } catch (e) { v = null; }
+  if (!v) {
+    grid.innerHTML = '<p class="muted">Not enough financial history for a valuation band yet.</p>';
+    var cv0 = $('valChart'); if (cv0) { var c0 = cv0.getContext('2d'); if (c0) c0.clearRect(0, 0, cv0.width, cv0.height); }
+    if (note) note.textContent = '';
+    return;
+  }
+  grid.innerHTML = valStat('P/E', v.pe) + valStat('P/B', v.pb);
+  if (tag) tag.textContent = v.years + ' yrs · ' + (v.ttm ? 'TTM' : 'latest annual');
+  drawValChart(v.pe || v.pb, v.pe ? 'P/E history' : 'P/B history');
+  if (note) {
+    note.textContent = 'P/E = price ÷ EPS as published' + (v.pe && v.pe.factor !== 1 ? ' (series scaled so today matches the reported multiple)' : '') +
+      '; P/B = price ÷ book value. Per-share history uses today\'s share count (' +
+      (v.sharesCr ? v.sharesCr.toFixed(1) + ' Cr shares' : '–') + '), the same basis as split-adjusted prices. ' +
+      'Fundamentals count from ~90 days after each fiscal year ends.';
+  }
+}
+
+/* ---------------- backtest ---------------- */
+function universeCounts() {
+  var need = 0, have = 0;
+  ACTIVE_UNIVERSE.forEach(function (u) {
+    need++;
+    if ((typeof CO !== 'undefined' && CO[u.sym]) || cachedCompany(u.sym)) have++;
+  });
+  return { have: have, need: need };
+}
+function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+async function ensureUniverse(onProgress) {
+  kickScreenerLoad();
+  var idleRounds = 0;
+  for (var i = 0; i < 900; i++) {
+    var c = universeCounts();
+    if (onProgress) onProgress(c);
+    if (!_loadingAll) {
+      if (c.have > 0) return c;
+      // nothing loaded and nothing in flight -> give up instead of spinning
+      if (++idleRounds >= 3) return c;
+    } else {
+      idleRounds = 0;
+    }
+    await sleep(400);
+  }
+  return universeCounts();
+}
+function btKpi(label, value, cls) {
+  return '<div class="bt-kpi"><span>' + esc(label) + '</span><b class="' + (cls || '') + '">' + value + '</b></div>';
+}
+function renderBacktest(res, years) {
+  var out = $('btOut'); if (!out) return;
+  if (!res || !res.count) {
+    out.innerHTML = '<p class="muted">No stock in the universe passed this screen at that date — loosen the filters and try again.</p>';
+    return;
+  }
+  var fmtPct = function (v) { return v == null ? '–' : (v > 0 ? '+' : '') + v.toFixed(1) + '%'; };
+  var alpha = (res.cagr != null && res.benchCagr != null) ? res.cagr - res.benchCagr : null;
+  var html = '<div class="bt-res">' +
+    btKpi('Stocks passing', res.count + ' / ' + res.universe) +
+    btKpi(years + '-year CAGR', fmtPct(res.cagr), res.cagr > 0 ? 'pos' : (res.cagr < 0 ? 'neg' : '')) +
+    btKpi('NIFTY CAGR', fmtPct(res.benchCagr)) +
+    btKpi('vs NIFTY', (alpha == null ? '–' : (alpha > 0 ? '+' : '') + alpha.toFixed(1) + ' pp'), alpha > 0 ? 'pos' : (alpha < 0 ? 'neg' : '')) +
+    btKpi('Max drawdown', fmtPct(res.maxDrawdown)) +
+    btKpi('Hit rate', res.hitRate == null ? '–' : Math.round(res.hitRate) + '%') +
+    '</div>';
+  var top = res.picks.slice(0, 12);
+  html += '<div class="bt-picks"><table><thead><tr><th>Stock</th><th>Return</th><th>P/E then</th><th>ROE then</th></tr></thead><tbody>' +
+    top.map(function (p) {
+      return '<tr class="bt-row" data-sym="' + esc(p.sym) + '"><td>' + esc(p.name || p.sym) + '</td><td class="' + numCls(p.ret) + '">' + fmtPct(p.ret) +
+        '</td><td>' + (p.pe == null ? '–' : p.pe.toFixed(1) + '×') + '</td><td>' + (p.roe == null ? '–' : p.roe.toFixed(1) + '%') + '</td></tr>';
+    }).join('') + '</tbody></table>' +
+    (res.picks.length > top.length ? '<p class="muted" style="font-size:12px">Showing best ' + top.length + ' of ' + res.picks.length + '.</p>' : '') +
+    '</div>';
+  out.innerHTML = html;
+  // click a pick to open that stock
+  Array.prototype.forEach.call(out.querySelectorAll('.bt-row'), function (tr) {
+    tr.style.cursor = 'pointer';
+    tr.addEventListener('click', function () {
+      var sym = tr.getAttribute('data-sym');
+      if (sym && UNI[sym]) selectStock(sym);
+      else if (sym) openSlug(sym, tr.textContent);
+    });
+  });
+}
+async function runBacktest() {
+  var btn = $('btRun'), out = $('btOut');
+  if (!btn || !out) return;
+  if (typeof valBacktest !== 'function') return;
+  var years = parseFloat(($('btYears') || {}).value) || 3;
+  btn.disabled = true; btn.textContent = 'Preparing…';
+  try {
+    var counts = await ensureUniverse(function (c) {
+      btn.textContent = 'Loading data ' + c.have + '/' + c.need + '…';
+    });
+    if (!counts.have) {
+      out.innerHTML = '<p class="muted">Could not load the universe — check your connection and try again.</p>';
+      return;
+    }
+    btn.textContent = 'Running…';
+    var end = Date.now();
+    var start = end - years * 365.25 * 86400000;
+    var members = [];
+    ACTIVE_UNIVERSE.forEach(function (u) {
+      var C = CO[u.sym] || cachedCompany(u.sym);
+      var chart = chartOf(u.sym);
+      if (C && chart) members.push({ sym: u.sym, C: C, chart: chart });
+    });
+    var bench = null;
+    try { bench = CH['^NSEI'] || await loadChart('^NSEI'); } catch (e) { bench = null; }
+    var passes = function (fund, C) {
+      var u = UNI[C.sym] || { sym: C.sym, sec: '' };
+      return rowPasses(u, S.scr, fund, null);
+    };
+    var res = valBacktest(members, start, end, passes, bench);
+    renderBacktest(res, years);
+  } catch (e) {
+    out.innerHTML = '<p class="muted">Backtest failed: ' + esc(String(e && e.message || e)) + '</p>';
+  } finally {
+    btn.disabled = false; btn.textContent = 'Run backtest';
+  }
+}
 function renderAll(C, CHd) {
   LAST_CH = CHd;
   renderStockHead(C, CHd);
   drawPriceChart(CHd);
+  renderVal(C, CHd);
   renderProsCons(C);
+  renderNews(C);
   renderPeers(C);
   renderStatements(C);
   renderSH(C);
@@ -936,6 +1224,15 @@ var _loadingAll = false;
 async function loadAllData() {
   if (_loadingAll) return;
   _loadingAll = true;
+  try {
+    await _loadAllDataInner();
+  } catch (e) {
+    var lt2 = $('loadTxt'); if (lt2) lt2.textContent = 'Load failed — tap Refresh to retry.';
+  } finally {
+    _loadingAll = false;
+  }
+}
+async function _loadAllDataInner() {
   var syms = ACTIVE_UNIVERSE.map(function (u) { return u.sym; });
   var need = syms.filter(function (s) { return !cachedCompany(s); });
   var total = need.length, doneN = 0, failN = 0;
@@ -944,20 +1241,20 @@ async function loadAllData() {
     var tx = $('loadTxt'); if (tx) tx.textContent = label;
   }
   progress(2, total ? 'Loading live financials… 0/' + total : 'Checking cache…');
-  await mapLimit(need, 2, async function (s) {
+  await mapLimit(need, 3, async function (s) {
     try { CO[s] = await ensureCompany(s); }
     catch (e) {
       // one gentle retry — bulk bursts can trip transient proxy/rate limits
-      await sleep(1500);
+      await sleep(1200);
       try { CO[s] = await ensureCompany(s); }
       catch (e2) { CO[s] = null; failN++; }
     }
-    await sleep(400);
+    await sleep(250);
     return true;
   }, function (d) {
     doneN = d;
     progress(2 + 68 * doneN / Math.max(total, 1), 'Loading live financials… ' + doneN + '/' + total);
-    renderScreener();
+    renderScreenerSoon();
   });
   // price history for all (fast, cached daily)
   var doneC = 0, failC = 0;
@@ -968,7 +1265,7 @@ async function loadAllData() {
   }, function (d) {
     doneC = d;
     progress(70 + 30 * doneC / syms.length, 'Loading price history… ' + doneC + '/' + syms.length);
-    renderScreener();
+    renderScreenerSoon();
   });
   var badNames = syms.filter(function (s) { return !CO[s]; });
   if (badNames.length) {
@@ -986,7 +1283,6 @@ async function loadAllData() {
       if (CHx) renderAll(CO[S.sym], CHx);
     } catch (e) {}
   }
-  _loadingAll = false;
 }
 
 /* loadAllData wrapper: never leave the busy flag stuck on unexpected throws */
@@ -1009,7 +1305,7 @@ function toggleWL(sym) {
 function renderWatchlist() {
   $('watchCount').textContent = S.wl.length ? S.wl.length + ' watching' : '';
   var box = $('watchlistRow');
-  if (!S.wl.length) { box.innerHTML = '<p class="muted">No stocks yet — tap ☆ on any stock or in the screener to track it here. Saved in this browser.</p>'; return; }
+  if (!S.wl.length) { box.innerHTML = '<p class="muted">No stocks yet — tap ☆ on any stock or in the screener to track it here. Saved automatically, and kept after you close the app.</p>'; return; }
   box.innerHTML = S.wl.map(function (sym) {
     var ch = chartOf(sym), C = CO[sym] || cachedCompany(sym);
     var nm = C ? C.name : nameOf(sym);
@@ -1085,7 +1381,7 @@ function exportStock() {
 function setTheme(t) {
   S.theme = t;
   document.documentElement.setAttribute('data-theme', t);
-  try { localStorage.setItem('screenone_theme', t); } catch (e) {}
+  try { PStore.setState('screenone_theme', t); } catch (e) {}
   $('themeBtn').textContent = t === 'dark' ? 'Light' : 'Dark';
   var C = CO[S.sym] || cachedCompany(S.sym);
   if (C && S.mode === 'stock') { renderAll(C, chartOf(S.sym)); }
@@ -1093,12 +1389,18 @@ function setTheme(t) {
 }
 function init() {
   document.documentElement.setAttribute('data-theme', S.theme);
+  // desktop build: swap the blurred sticky bars for solid ones (cheaper to paint)
+  if (typeof PStore !== 'undefined' && PStore.isDisk) document.body.classList.add('native');
   $('themeBtn').textContent = S.theme === 'dark' ? 'Light' : 'Dark';
-  renderIndices(); renderPresets();
+  renderPresets();
   renderScreener(); renderWatchlist();
   showSkeletons();
   loadAndRender(S.sym);
-  loadAllData();
+  // the index strip is secondary: let the stock hero paint first
+  setTimeout(renderIndices, 250);
+  // The 160-stock bulk load only starts when the screener card comes into view
+  // (or the user touches its filters). It never competes with the first paint.
+  setupScreenerLazyLoad();
   var si = $('searchInput');
   si.addEventListener('input', function () { renderSearchDrop(si.value); });
   si.addEventListener('focus', function () { renderSearchDrop(si.value); });
@@ -1126,8 +1428,16 @@ function init() {
     });
   });
   ['f_q', 'f_sector', 'f_mcap', 'f_pe', 'f_roe', 'f_roce', 'f_dy', 'f_de', 'f_gs', 'f_gp', 'f_opm', 'f_onlyWL'].forEach(function (id) {
-    $(id).addEventListener('input', function () { readScreenerInputs(); renderScreener(); });
-    $(id).addEventListener('change', function () { readScreenerInputs(); renderScreener(); });
+    var el = $(id);
+    if (!el) return;
+    var onFilter = function () {
+      kickScreenerLoad(); readScreenerInputs(); renderScreenerSoon();
+      // a result from the previous filters would be misleading
+      var bo = $('btOut');
+      if (bo && bo.innerHTML) bo.innerHTML = '<p class="muted">Filters changed — run the backtest again.</p>';
+    };
+    el.addEventListener('input', onFilter);
+    el.addEventListener('change', onFilter);
   });
   $('resetBtn').addEventListener('click', function () { resetScreenerInputs(); renderScreener(); });
   $('copyQueryBtn').addEventListener('click', function () {
@@ -1148,6 +1458,7 @@ function init() {
     } else {
       if (typeof liveCacheClear === 'function') liveCacheClear();
       CO = {}; CH = {};
+      _screenerKicked = true;
       if (lt) lt.textContent = 'Cache cleared — reloading live…';
       loadAllData();
     }
@@ -1156,6 +1467,7 @@ function init() {
     else { loadAndRender(S.sym); }
   });
   $('starBtn').addEventListener('click', function () { toggleWL(S.sym); });
+  var _bt = $('btRun'); if (_bt) _bt.addEventListener('click', runBacktest);
   var _ib = $('installBtn'); if (_ib) _ib.addEventListener('click', openInstall);
   var _ic = $('installClose'); if (_ic) _ic.addEventListener('click', function () { $('installOverlay').hidden = true; });
   var _io = $('installOverlay'); if (_io) _io.addEventListener('click', function (e) { if (e.target === _io) _io.hidden = true; });
@@ -1171,6 +1483,8 @@ function init() {
   }, { passive: true });
   window.addEventListener('resize', function () {
     if (LAST_CH) drawPriceChart(LAST_CH);
+    var vc = CO[S.sym] || cachedCompany(S.sym);
+    if (vc && S.mode === 'stock') renderVal(vc, chartOf(S.sym));
     var C = CO[S.sym] || cachedCompany(S.sym);
     if (C && S.mode === 'stock') { drawFinChart(C); renderSH(C); }
   });

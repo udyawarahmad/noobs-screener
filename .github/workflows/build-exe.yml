@@ -1,0 +1,90 @@
+name: Build Windows EXE
+
+# Builds the Windows .exe (installer + portable) with electron-builder on a
+# Windows runner, then uploads the .exe files to the GitHub Release.
+#
+# - Push a tag (v* or noobsscreener) -> build + upload to that tag's Release.
+# - Push to this branch -> build + upload to the "noobsscreener" Release.
+# - Once this file is on the default branch, you can also run it manually:
+#   Actions tab -> "Build Windows EXE" -> Run workflow.
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag to upload the .exe to (leave blank to only keep the Actions artifact)"
+        required: false
+        default: "noobsscreener"
+  push:
+    branches:
+      - "arena/**"
+    tags:
+      - "v*"
+      - "noobsscreener"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          # 22 LTS: jsdom (used by the renderer smoke test) needs Node >= 22
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run tests
+        shell: pwsh
+        run: |
+          npm test 2>&1 | Tee-Object -FilePath test.log
+          if ($LASTEXITCODE -ne 0) {
+            Get-Content test.log | Select-String -Pattern 'FAIL|Error|assert|Error:' |
+              Select-Object -Last 25 | ForEach-Object { Write-Host "::error::$($_.Line)" }
+            Get-Content test.log -Tail 15 | ForEach-Object { Write-Host "::error::$($_)" }
+            exit 1
+          }
+
+      - name: Build Windows .exe
+        shell: pwsh
+        run: |
+          # No code signing — the .exe is unsigned (SmartScreen may warn once).
+          $env:CSC_IDENTITY_AUTO_DISCOVERY = "false"
+          npm run dist 2>&1 | Tee-Object -FilePath build.log
+          if ($LASTEXITCODE -ne 0) {
+            # Surface the failure as annotations so it is visible in the run summary.
+            Get-Content build.log | Select-String -Pattern '⨯|Error|error:|Cannot|failed|ENOENT' |
+              Select-Object -Last 20 | ForEach-Object { Write-Host "::error::$($_.Line)" }
+            exit 1
+          }
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Noobs-Screener-win
+          path: |
+            dist/*.exe
+            dist/*.zip
+          if-no-files-found: error
+
+      - name: Upload .exe to Release
+        # Tag pushes publish; a plain branch run only produces the artifact above,
+        # so work-in-progress builds never touch a released version.
+        if: github.ref_type == 'tag' || inputs.release_tag != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          # Tag push -> that tag. Branch push / manual run -> chosen tag
+          # (defaults to the existing "noobsscreener" Release).
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || inputs.release_tag || 'noobsscreener' }}
+          files: |
+            dist/*.exe
+            dist/*.zip
+          fail_on_unmatched_files: true
+          # Keep an existing release's title/notes untouched.
