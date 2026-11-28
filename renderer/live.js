@@ -160,7 +160,12 @@ async function freshChartY(ySym) {
   }
   // nothing fresh enough → force a network fetch; on failure serve what we have
   try { return await loadChart(ySym, true); }
-  catch (e) { return CH[ySym] || (c ? c.v : null); }
+  catch (e) {
+    // a dead network must surface (callers fail fast instead of trying every
+    // candidate symbol); "no data for this symbol" still falls back
+    if (isNetworkBlocked(e)) throw e;
+    return CH[ySym] || (c ? c.v : null);
+  }
 }
 async function freshChartSym(sym) {
   var cands = chartCands(sym), last = null;
@@ -168,7 +173,11 @@ async function freshChartSym(sym) {
     try {
       var ch = await freshChartY(cands[i]);
       if (ch) return ch;
-    } catch (e) { last = e; }
+    } catch (e) {
+      last = e;
+      // .NS and .BO are the same host — a dead network must fail fast
+      if (isNetworkBlocked(e)) throw e;
+    }
   }
   if (last) throw last;
   throw new Error('no market data for ' + sym);
@@ -404,7 +413,12 @@ async function loadCompany(sym) {
         parsed.consolidated = suffixes[fi] !== '/';
         liveCacheSet(key, parsed);
         return parsed;
-      } catch (e) { lastErr = e; }
+      } catch (e) {
+        lastErr = e;
+        // same host for every slug/suffix — a dead network must fail fast
+        // instead of waiting through all four URLs
+        if (isNetworkBlocked(e)) throw e;
+      }
     }
   }
   throw lastErr;
@@ -441,24 +455,45 @@ function _withTimeout(ms) {
 /* ---------- standalone fetch layer (GitHub/Electron build) ----------
    Order: Electron main-process proxy (no CORS) -> direct fetch (Yahoo
    allows it) -> public CORS-proxy fallback (plain static hosting). */
+/* The main-process bridge must never hang the UI: race it against a deadline
+   and fall through to direct fetch → corsproxy. A stalled ns-fetch (dropped
+   packets, firewall, captive portal) used to leave the skeleton on screen
+   forever with no error and no retry. Tests may shrink it via window.__. */
+var NS_FETCH_TIMEOUT_MS = 8000;
+function _deadline(promise, ms) {
+  return new Promise(function (resolve, reject) {
+    var t = setTimeout(function () { reject(new Error('bridge timeout')); }, ms);
+    Promise.resolve(promise).then(function (v) {
+      clearTimeout(t); resolve(v);
+    }, function (e) {
+      clearTimeout(t); reject(e);
+    });
+  });
+}
 async function httpText(url) {
   try { if (typeof window !== "undefined" && window.electronFetch) {
-    var er = await window.electronFetch(url);
+    var budget = (window.__NS_FETCH_TIMEOUT_MS || NS_FETCH_TIMEOUT_MS);
+    var er = await _deadline(window.electronFetch(url), budget);
     if (er && er.ok !== false && typeof er.body === "string") return er.body;
   } } catch (e) {}
-  var w1 = _withTimeout(30000);
+  var w1 = _withTimeout(15000);
   try {
     var r = await fetch(url, { credentials: "omit", signal: w1 && w1.signal });
     if (w1) w1.done();
     if (r.ok) return await r.text();
   } catch (e) { if (w1) w1.done(); }
-  var w2 = _withTimeout(30000);
+  var w2 = _withTimeout(15000);
   try {
     var r2 = await fetch("https://corsproxy.io/?url=" + encodeURIComponent(url), { signal: w2 && w2.signal });
     if (w2) w2.done();
     if (r2.ok) return await r2.text();
   } catch (e) { if (w2) w2.done(); }
   throw new Error("network blocked");
+}
+/* Transport-level failure: the host is unreachable or every stage timed out.
+   Retrying sibling URLs (same host) would only multiply the wait. */
+function isNetworkBlocked(e) {
+  return !!e && e.message === 'network blocked';
 }
 async function httpJSON(url) {
   try { if (typeof window !== "undefined" && window.electronFetch) {

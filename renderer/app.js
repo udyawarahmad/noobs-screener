@@ -1295,9 +1295,17 @@ async function _loadAllDataInner() {
     var tx = $('loadTxt'); if (tx) tx.textContent = label;
   }
   progress(2, total ? 'Loading live financials… 0/' + total : 'Checking cache…');
+  // circuit breaker: once the network is provably dead, stop hammering all
+  // 163 stocks (each would otherwise burn the full timeout chain)
+  var deadNet = false;
   await mapLimit(need, 3, async function (s) {
+    if (deadNet) { CO[s] = null; failN++; return true; }
     try { CO[s] = await ensureCompany(s); }
     catch (e) {
+      if (typeof isNetworkBlocked === 'function' && isNetworkBlocked(e)) {
+        deadNet = true; CO[s] = null; failN++;
+        return true;
+      }
       // one gentle retry — bulk bursts can trip transient proxy/rate limits
       await sleep(1200);
       try { CO[s] = await ensureCompany(s); }
@@ -1313,8 +1321,12 @@ async function _loadAllDataInner() {
   // price history for all (fast, cached daily)
   var doneC = 0, failC = 0;
   await mapLimit(syms, 6, async function (s) {
+    if (deadNet) { failC++; return true; }
     try { await ensureChart(s); }
-    catch (e) { failC++; }
+    catch (e) {
+      if (typeof isNetworkBlocked === 'function' && isNetworkBlocked(e)) deadNet = true;
+      failC++;
+    }
     return true;
   }, function (d) {
     doneC = d;
@@ -1322,7 +1334,9 @@ async function _loadAllDataInner() {
     renderScreenerSoon();
   });
   var badNames = syms.filter(function (s) { return !CO[s]; });
-  if (badNames.length) {
+  if (deadNet) {
+    progress(100, 'Network unreachable — check your connection, then tap Refresh.');
+  } else if (badNames.length) {
     progress(100, 'Could not load ' + badNames.length + ' stock(s): ' + badNames.join(', ') + ' — tap Refresh to retry.');
   } else if (failC) {
     progress(100, 'Financials loaded ✓ · price history missing for ' + failC + ' stock(s) — tap Refresh to retry.');
