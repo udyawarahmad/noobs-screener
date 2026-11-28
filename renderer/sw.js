@@ -3,7 +3,7 @@
    localStorage) and the app already treats that as the offline source of truth.
    This worker only keeps the *shell* (HTML/CSS/JS/icons) so the page opens
    instantly and works offline; data requests pass straight through. */
-var SW_VERSION = 'v3.0.1';
+var SW_VERSION = 'v3.0.2';
 var SHELL = 'shell-' + SW_VERSION;
 var SHELL_FILES = [
   './',

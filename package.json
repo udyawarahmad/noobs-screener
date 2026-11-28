@@ -1,7 +1,7 @@
 {
   "name": "noobs-screener",
   "productName": "Noobs Screener",
-  "version": "3.0.1",
+  "version": "3.0.2",
   "description": "Noobs Screener — one-page Indian stock screener (live prices, financials, ratios, shareholding).",
   "main": "main.js",
   "author": "udyawarahmad",

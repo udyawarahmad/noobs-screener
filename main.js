@@ -37,7 +37,10 @@ function registerIpc() {
     const blocked = fetchBlockReason(url);
     if (blocked) return { ok: false, status: 0, body: '', error: 'blocked: ' + blocked };
     try {
-      const res = await net.fetch(String(url));
+      // hard deadline: a stalled connection must settle the IPC call, or the
+      // renderer's skeleton waits forever (the renderer races its own timeout
+      // too — this one just keeps main-process requests from piling up)
+      const res = await net.fetch(String(url), { signal: AbortSignal.timeout(10000) });
       const body = await res.text();
       return { ok: res.ok, status: res.status, body };
     } catch (e) {

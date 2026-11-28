@@ -17,6 +17,15 @@
 > longer rebuild the screener/watchlist DOM, and the test chain now really runs
 > all **8 suites / 103 checks** (a duplicate `package.json` key had been
 > silently skipping the pwa suite).
+>
+> **UPDATE v3.0.2 (same day):** field report — the packaged exe sat on the
+> skeleton forever. Root cause: the `ns-fetch` bridge call had **no timeout at
+> any layer**, so one stalled connection hung `loadAndRender` for good (no
+> error, no retry). Now every stage has a hard deadline (main 10 s / bridge
+> 8 s / direct+proxy 15 s each), a dead network fails fast after **one**
+> attempt instead of eight, the bulk loader trips a circuit breaker with an
+> honest "Network unreachable" message, and the UI always lands on the error
+> panel with a Retry button.
 
 > Audited 2026-11-28 on branch `arena/75f05bca-noobs-screener` (base `2c41783`).
 > Method: full source review of every file (~5,100 lines), the whole test suite run

@@ -80,6 +80,12 @@ async function boot(opts) {
       };
       window.electronFetch = async () => ({ ok: false, status: 0, body: '', error: 'offline (test)' });
       window.fetch = async () => { throw new Error('offline (test)'); };
+      if (opts.hangBridge) {
+        // the packaged-app failure mode: ns-fetch never settles. The renderer
+        // must cut it off and show the error panel instead of a forever-skeleton.
+        window.electronFetch = () => new Promise(() => {});
+        window.__NS_FETCH_TIMEOUT_MS = 30;
+      }
       window.addEventListener('error', (e) => errors.push('window.error: ' + (e.message || e.error)));
       window.addEventListener('unhandledrejection', (e) => errors.push('unhandledrejection: ' + (e.reason && e.reason.message)));
     }
@@ -447,6 +453,19 @@ async function boot(opts) {
     app.window.renderStockHead(C, null);
     const stamp2 = app.doc.getElementById('freshStamp').textContent;
     assert.ok(!/prices live/.test(stamp2), 'still no bare claim without a chart: ' + stamp2);
+  });
+
+  console.log('\npackaged-app failure modes');
+
+  await test('a hung fetch bridge ends in the error panel, not an eternal skeleton', async () => {
+    const b = await boot({ hangBridge: true });
+    const real = b.errors.filter((e) => !/offline \(test\)|Not implemented|Could not load|network blocked/i.test(e));
+    assert.strictEqual(real.length, 0, 'boot errors: ' + JSON.stringify(real.slice(0, 3)));
+    const err = b.doc.querySelector('#qTable .errbox');
+    assert.ok(err, 'error panel rendered instead of the skeleton');
+    assert.ok(/Could not load live data/.test(err.textContent), err.textContent.slice(0, 120));
+    assert.ok(err.querySelector('[data-retry]'), 'retry button offered');
+    assert.strictEqual(b.doc.getElementById('stPrice').textContent, '–', 'honest price placeholder');
   });
 
   console.log('\nshareable view links (?q=)');

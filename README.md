@@ -420,7 +420,7 @@ Startup was treated as a feature, not an afterthought:
 
 ## Tests
 
-Eight suites, **103 checks**, all plain Node — no test framework to install beyond `npm install`:
+Eight suites, **109 checks**, all plain Node — no test framework to install beyond `npm install`:
 
 ```bash
 npm install     # once; installs jsdom for the smoke test
@@ -433,12 +433,12 @@ npm test
 |---|---|---|
 | `test/net.test.js` | 7 | the renderer→main fetch bridge policy: the app's own data hosts pass, `file://` / `javascript:` / LAN / arbitrary hosts are blocked with safe reasons |
 | `test/universe.test.js` | 7 | universe data quality: well-formed entries, no duplicates, `.NS` Yahoo symbols, **M&M and LICI present**, LTIMindtree keyed by its real slug, skip flags, sector list consistency |
-| `test/live.test.js` | 11 | quote freshness: NSE market-hours detection (9:15–15:30 IST, Mon–Fri), 2-min/15-min quote TTLs vs the 1-day history TTL, force-refetch, stale fallback when the network dies, BSE symbol fallback, and **NaN/garbage price points being dropped** instead of poisoning the chart |
+| `test/live.test.js` | 16 | quote freshness: NSE market-hours detection (9:15–15:30 IST, Mon–Fri), 2-min/15-min quote TTLs vs the 1-day history TTL, force-refetch, stale fallback when the network dies, BSE symbol fallback, **NaN/garbage price points dropped**, and the **hang-proof fetch chain** (never-settling bridge cut by the deadline, dead-network fast-fail: one URL instead of four, no candidate retries) |
 | `test/persistence.test.js` | 13 | disk store round-trips, atomic writes, key sanitisation and collisions, cache trimming, legacy profile migration, watchlist durability with a huge cache, web `localStorage` fallback — plus regressions for the old "watchlist disappeared" quota bug |
 | `test/news.test.js` | 14 | RSS/Atom parsing, CDATA and entity decoding, junk input, feed fallback order, caching, the strict relevance rules (including "never fall back to unrelated headlines"), and alias keys matching real symbols (`BAJAJ-AUTO`, `M&M`, `LTIM`) |
 | `test/valuation.test.js` | 17 | real TCS and HDFC Bank figures, month-end parsing, the 90-day lag, column-order independence, bank "Borrowing" handling, point-in-time fundamentals, and **fuzzing** — 300 random companies and 200 random portfolios are checked to never produce `NaN`, impossible percentages or out-of-range statistics |
 | `test/pwa.test.js` | 6 | the offline shell: `sw.js` parses, every precached file exists on disk (one 404 would fail the whole install), `SW_VERSION` tracks `package.json`, registration is http(s)-only, manifest icons exist |
-| `test/renderer.smoke.test.js` | 28 | boots the **real** `index.html` in jsdom with network stubbed to fail, then asserts: no uncaught errors, watchlist painted from disk, starring persists immediately, theme persists, startup does **not** bulk-load the universe, desktop blur is off, news renders safe external links, the valuation card shows P/E, P/B and a percentile chip, the 3.0.1 pack (removed-feature guard, sticky section nav, no data-source names in the UI, index refreshes not rebuilding tables) — **plus the P0/P1 regression pack** (true YoY quarterly growth, search-dropdown clicks surviving remote appends, symbol escaping / hostile-slug rejection, safe retry buttons, live sector dropdown, CSP meta tag, honest freshness stamp) **and the shareable-link pack** (encode→apply round-trip, `?q=` boots filtered, garbage/hostile payloads rejected without creating elements) |
+| `test/renderer.smoke.test.js` | 29 | boots the **real** `index.html` in jsdom with network stubbed to fail, then asserts: no uncaught errors, watchlist painted from disk, starring persists immediately, theme persists, startup does **not** bulk-load the universe, desktop blur is off, news renders safe external links, the valuation card shows P/E, P/B and a percentile chip, the 3.0.1 pack (removed-feature guard, sticky section nav, no data-source names in the UI, index refreshes not rebuilding tables) and the **hung-bridge failure mode** (error panel + Retry instead of an eternal skeleton) — **plus the P0/P1 regression pack** (true YoY quarterly growth, search-dropdown clicks surviving remote appends, symbol escaping / hostile-slug rejection, safe retry buttons, live sector dropdown, CSP meta tag, honest freshness stamp) **and the shareable-link pack** (encode→apply round-trip, `?q=` boots filtered, garbage/hostile payloads rejected without creating elements) |
 
 Individual suites can be run directly:
 
@@ -563,7 +563,7 @@ git push --follow-tags   # pushes the commit and the v* tag
 
 The tag push starts the Windows build, which attaches the installer, portable exe and zip to that tag's Release. Update the release notes afterwards.
 
-Current version: **3.0.1**.
+Current version: **3.0.2**.
 
 ---
 
@@ -577,6 +577,7 @@ Current version: **3.0.1**.
 | `v1.1.0` | Per-company news card |
 | `v1.2.0` | Strict news relevance rules, faster startup |
 | `v2.0.0` | **Time Machine** — valuation history with percentile bands, and screen backtesting against NIFTY |
+| `v3.0.2` | **Load-fix release** — the fetch bridge can no longer hang the UI: every stage has a hard deadline (bridge 8 s, fetch 15 s), a dead network fails fast after one attempt instead of eight, and the app ends on an honest error panel with Retry instead of an eternal skeleton |
 | `v3.0.1` | **Reliability pass** — section nav now stays pinned below the header while scrolling, backtesting removed, data-source names scrubbed from the UI/docs, index refreshes no longer rebuild the screener table |
 | `v3.0.0` | **Everything ships** — true YoY quarterly growth, quotes that stay live all session (2-min TTL in market hours), injection hardening + strict CSP, fetch-host allowlist, Electron 45 / audit clean, single-instance lock, **shareable screen links** (`?q=`), real offline shell (`sw.js`), CAGR+drawdown from one curve, CI on main/PRs |
 

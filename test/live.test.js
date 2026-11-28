@@ -221,6 +221,55 @@ function loadLive() {
     await assert.rejects(() => h.sandbox.loadChart('J.NS'), /empty price history/);
   });
 
+  console.log('\nthe fetch chain can never hang the UI');
+
+  await test('a never-settling bridge is cut off by the deadline', async () => {
+    const h = loadLive();
+    h.sandbox.window.electronFetch = () => new Promise(() => {});   // hangs forever
+    h.sandbox.window.__NS_FETCH_TIMEOUT_MS = 20;
+    h.sandbox.fetch = async () => ({ ok: true, text: async () => 'DIRECT BODY' });
+    const t0 = Date.now();
+    const body = await h.sandbox.httpText('https://www.screener.in/company/X/');
+    assert.strictEqual(body, 'DIRECT BODY', 'fell through to the direct fetch');
+    assert.ok(Date.now() - t0 < 2000, 'deadline held: ' + (Date.now() - t0) + 'ms');
+  });
+
+  await test('bridge + network both dead -> quick "network blocked", not a hang', async () => {
+    const h = loadLive();
+    h.sandbox.window.electronFetch = () => new Promise(() => {});
+    h.sandbox.window.__NS_FETCH_TIMEOUT_MS = 20;
+    h.sandbox.fetch = async () => { throw new Error('offline (test)'); };
+    const t0 = Date.now();
+    await assert.rejects(() => h.sandbox.httpText('https://www.screener.in/company/X/'), /network blocked/);
+    assert.ok(Date.now() - t0 < 2000, 'chain settled fast: ' + (Date.now() - t0) + 'ms');
+  });
+
+  await test('loadCompany fails fast on a dead network (one URL, not four)', async () => {
+    const h = loadLive();
+    let calls = 0;
+    h.sandbox.httpText = async () => { calls++; throw new Error('network blocked'); };
+    await assert.rejects(() => h.sandbox.loadCompany('RELIANCE'), /network blocked/);
+    assert.strictEqual(calls, 1, 'same host for every slug/suffix — no retries through dead air');
+  });
+
+  await test('freshChartSym does not retry candidates on a dead network', async () => {
+    const h = loadLive();
+    let calls = 0;
+    h.sandbox.httpJSON = async () => { calls++; throw new Error('network blocked'); };
+    await assert.rejects(() => h.sandbox.freshChartSym('T'), /network blocked/);
+    assert.strictEqual(calls, 1, '.BO candidate skipped — same host');
+  });
+
+  await test('freshChartY rethrows dead-network errors but still falls back for missing symbols', async () => {
+    const h = loadLive();
+    h.sandbox.httpJSON = async () => { throw new Error('network blocked'); };
+    await assert.rejects(() => h.sandbox.freshChartY('T.NS'), /network blocked/);
+    // a symbol Yahoo simply doesn't know still returns null instead of throwing
+    h.sandbox.httpJSON = async () => { throw new Error('no market data for ZZZ'); };
+    const ch = await h.sandbox.freshChartY('ZZZ.NS');
+    assert.strictEqual(ch, null, 'missing symbol degrades to null');
+  });
+
   console.log(failures ? '\n' + failures + ' test(s) failed\n' : '\nAll tests passed\n');
   process.exit(failures ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });
