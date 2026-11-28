@@ -177,6 +177,50 @@ function loadLive() {
     assert.strictEqual(ch.price, 55, 'from the .BO candidate');
   });
 
+  console.log('\\nB16: garbage points are dropped, not chart-poisoning');
+
+  await test('NaN closes and missing opens are filtered out of pts', async () => {
+    const h = loadLive();
+    const t0 = 1764547200;
+    h.sandbox.httpJSON = async () => ({
+      chart: {
+        result: [{
+          meta: { regularMarketPrice: 103, regularMarketChangePercent: 1, currency: 'INR', longName: 'Gap Co' },
+          timestamp: [t0, t0 + 86400, t0 + 172800, t0 + 259200],
+          indicators: {
+            quote: [{
+              open: [100, 100, null, 100], high: [101, 101, null, 101],
+              low: [99, 99, null, 99], close: [100, null, 102, 103], volume: [1, 2, 3, 4]
+            }],
+            adjclose: [{ adjclose: [100, NaN, 102, 103] }]
+          }
+        }],
+        error: null
+      }
+    });
+    const ch = await h.sandbox.loadChart('G.NS');
+    assert.strictEqual(ch.pts.length, 3, 'the NaN point is dropped (old code kept it: NaN != null)');
+    assert.ok(ch.pts.every((p) => Number.isFinite(p.c) && p.c > 0), 'every close finite and positive');
+    assert.ok(ch.pts.every((p) => p.o == null || Number.isFinite(p.o)), 'opens finite or null');
+    const cs = ch.pts.map((p) => p.c);
+    assert.ok(Number.isFinite(Math.min(...cs)) && Number.isFinite(Math.max(...cs)), 'min/max consumers see no NaN');
+  });
+
+  await test('a chart of nothing but garbage still fails loudly', async () => {
+    const h = loadLive();
+    h.sandbox.httpJSON = async () => ({
+      chart: {
+        result: [{
+          meta: { currency: 'INR' },
+          timestamp: [1764547200],
+          indicators: { quote: [{ close: [null] }], adjclose: [{ adjclose: [NaN] }] }
+        }],
+        error: null
+      }
+    });
+    await assert.rejects(() => h.sandbox.loadChart('J.NS'), /empty price history/);
+  });
+
   console.log(failures ? '\n' + failures + ' test(s) failed\n' : '\nAll tests passed\n');
   process.exit(failures ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });

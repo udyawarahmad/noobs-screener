@@ -85,10 +85,10 @@ It is a **plain static web app** (`renderer/`) wrapped in a thin **Electron** sh
 
 - **Index strip** — NIFTY 50, SENSEX, NIFTY BANK, USD/INR and Gold, live. Click any of them to load its chart and stats into the Overview.
 - **Universal search** — the curated universe appears instantly; anything else is looked up live on screener.in's search API, so you can open *any* listed Indian company, not just the 163 in the list.
-- **Screener** — 11 filters, 13 sortable columns, 7 one-click presets, a human-readable query preview, CSV export and a backtester.
+- **Screener** — 11 filters, 13 sortable columns, 7 one-click presets, a human-readable query preview, CSV export, a backtester — and **Share view**, which copies a link (`?q=…`) that reopens exactly this filtered, sorted screen on any device.
 - **Watchlist** — star any stock (including ones you found via universal search); it survives restarts.
 - **Light / dark theme**, remembered between sessions.
-- **PWA install** — the website build can be added to a phone's home screen and run full-screen.
+- **PWA install** — the website build can be added to a phone's home screen, runs full-screen, and opens **offline** (a tiny service worker keeps the shell; data comes from the local cache).
 
 ---
 
@@ -438,7 +438,7 @@ Startup was treated as a feature, not an afterthought:
 
 ## Tests
 
-Seven suites, **96 checks**, all plain Node — no test framework to install beyond `npm install`:
+Eight suites, **108 checks**, all plain Node — no test framework to install beyond `npm install`:
 
 ```bash
 npm install     # once; installs jsdom for the smoke test
@@ -451,11 +451,12 @@ npm test
 |---|---|---|
 | `test/net.test.js` | 7 | the renderer→main fetch bridge policy: the app's own data hosts pass, `file://` / `javascript:` / LAN / arbitrary hosts are blocked with safe reasons |
 | `test/universe.test.js` | 7 | universe data quality: well-formed entries, no duplicates, `.NS` Yahoo symbols, **M&M and LICI present**, LTIMindtree keyed by its real slug, skip flags, sector list consistency |
-| `test/live.test.js` | 9 | quote freshness: NSE market-hours detection (9:15–15:30 IST, Mon–Fri), 2-min/15-min quote TTLs vs the 1-day history TTL, force-refetch, stale fallback when the network dies, BSE symbol fallback |
+| `test/live.test.js` | 11 | quote freshness: NSE market-hours detection (9:15–15:30 IST, Mon–Fri), 2-min/15-min quote TTLs vs the 1-day history TTL, force-refetch, stale fallback when the network dies, BSE symbol fallback, and **NaN/garbage price points being dropped** instead of poisoning the chart |
 | `test/persistence.test.js` | 13 | disk store round-trips, atomic writes, key sanitisation and collisions, cache trimming, legacy profile migration, watchlist durability with a huge cache, web `localStorage` fallback — plus regressions for the old "watchlist disappeared" quota bug |
 | `test/news.test.js` | 14 | RSS/Atom parsing, CDATA and entity decoding, junk input, feed fallback order, caching, the strict relevance rules (including "never fall back to unrelated headlines"), and alias keys matching real symbols (`BAJAJ-AUTO`, `M&M`, `LTIM`) |
-| `test/valuation.test.js` | 22 | real TCS and HDFC Bank figures, month-end parsing, the 90-day lag, column-order independence, bank "Borrowing" handling, point-in-time fundamentals, CAGR/drawdown, and **fuzzing** — 300 random companies and 200 random portfolios are checked to never produce `NaN`, impossible percentages or out-of-range statistics |
-| `test/renderer.smoke.test.js` | 24 | boots the **real** `index.html` in jsdom with network stubbed to fail, then asserts: no uncaught errors, watchlist painted from disk, starring persists immediately, theme persists, startup does **not** bulk-load the universe, desktop blur is off, news renders safe external links, the valuation card shows P/E, P/B and a percentile chip, a full backtest runs end-to-end — **plus the P0/P1 regression pack**: true YoY quarterly growth, search-dropdown clicks surviving remote appends, symbol escaping / hostile-slug rejection, safe retry buttons (no inline `onclick`), live sector dropdown, the CSP meta tag, and the honest freshness stamp |
+| `test/valuation.test.js` | 23 | real TCS and HDFC Bank figures, month-end parsing, the 90-day lag, column-order independence, bank "Borrowing" handling, point-in-time fundamentals, CAGR/drawdown **from one equity curve**, and **fuzzing** — 300 random companies and 200 random portfolios are checked to never produce `NaN`, impossible percentages or out-of-range statistics |
+| `test/pwa.test.js` | 6 | the offline shell: `sw.js` parses, every precached file exists on disk (one 404 would fail the whole install), `SW_VERSION` tracks `package.json`, registration is http(s)-only, manifest icons exist |
+| `test/renderer.smoke.test.js` | 27 | boots the **real** `index.html` in jsdom with network stubbed to fail, then asserts: no uncaught errors, watchlist painted from disk, starring persists immediately, theme persists, startup does **not** bulk-load the universe, desktop blur is off, news renders safe external links, the valuation card shows P/E, P/B and a percentile chip, a full backtest runs end-to-end — **plus the P0/P1 regression pack** (true YoY quarterly growth, search-dropdown clicks surviving remote appends, symbol escaping / hostile-slug rejection, safe retry buttons, live sector dropdown, CSP meta tag, honest freshness stamp) **and the shareable-link pack** (encode→apply round-trip, `?q=` boots filtered, garbage/hostile payloads rejected without creating elements) |
 
 Individual suites can be run directly:
 
@@ -581,7 +582,7 @@ git push --follow-tags   # pushes the commit and the v* tag
 
 The tag push starts the Windows build, which attaches the installer, portable exe and zip to that tag's Release. Update the release notes afterwards.
 
-Current version: **2.0.0**.
+Current version: **3.0.0**.
 
 ---
 
@@ -595,6 +596,7 @@ Current version: **2.0.0**.
 | `v1.1.0` | Per-company news card |
 | `v1.2.0` | Strict news relevance rules, faster startup |
 | `v2.0.0` | **Time Machine** — valuation history with percentile bands, and screen backtesting against NIFTY |
+| `v3.0.0` | **Everything ships** — true YoY quarterly growth, quotes that stay live all session (2-min TTL in market hours), injection hardening + strict CSP, fetch-host allowlist, Electron 45 / audit clean, single-instance lock, **shareable screen links** (`?q=`), real offline shell (`sw.js`), CAGR+drawdown from one curve, CI on main/PRs |
 
 ---
 

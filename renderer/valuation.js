@@ -444,12 +444,20 @@ function valBacktest(members, startMs, endMs, passes, benchmarkChart) {
 
   var winners = rets.filter(function (r) { return r > 0; }).length;
 
+  /* One equity curve drives BOTH KPIs (B15): CAGR and max drawdown describe
+     the same equal-weight portfolio path, instead of a mean-of-returns CAGR
+     sitting next to a curve-based drawdown. */
+  var curveCagr = null;
+  if (curve.length > 1 && years > 0 && curve[0] > 0 && curve[curve.length - 1] > 0) {
+    curveCagr = (Math.pow(curve[curve.length - 1] / curve[0], 1 / years) - 1) * 100;
+  }
+
   return {
     count: picks.length,
     universe: members.length,
     avgReturn: avg,
     medianReturn: rets.length ? rets.slice().sort(function (a, b) { return a - b; })[Math.floor(rets.length / 2)] : null,
-    cagr: (avg != null) ? valCagr(100, 100 + avg, years) : null,
+    cagr: curveCagr,
     benchReturn: benchRet,
     benchCagr: (benchRet != null) ? valCagr(100, 100 + benchRet, years) : null,
     maxDrawdown: curve.length > 2 ? valMaxDrawdown(curve) : null,

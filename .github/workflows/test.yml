@@ -1,0 +1,31 @@
+# Quality gate: runs on every PR and every push to main (B19) — the old
+# workflow only fired on arena/** branches and tags, so nothing protected main.
+# --ignore-scripts skips Electron's binary download: these tests run in plain
+# Node and don't need it (keeps runs fast and off the electron CDN).
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Run tests
+        run: npm test

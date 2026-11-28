@@ -55,9 +55,10 @@ async function boot(opts) {
   virtualConsole.on('error', (...a) => errors.push('console.error: ' + a.join(' ')));
 
   const html = fs.readFileSync(path.join(ROOT, 'renderer/index.html'), 'utf8');
+  const baseUrl = pathToFileURL(path.join(ROOT, 'renderer/index.html')).href;
   const dom = new JSDOM(html, {
     // pathToFileURL: on Windows "file://C:\..." is not a valid URL
-    url: pathToFileURL(path.join(ROOT, 'renderer/index.html')).href,
+    url: opts.query ? baseUrl + '?' + opts.query : baseUrl,
     runScripts: 'dangerously',
     resources: 'usable',
     pretendToBeVisual: true,
@@ -425,6 +426,68 @@ async function boot(opts) {
     app.window.renderStockHead(C, null);
     const stamp2 = app.doc.getElementById('freshStamp').textContent;
     assert.ok(!/prices live/.test(stamp2), 'still no bare claim without a chart: ' + stamp2);
+  });
+
+  console.log('\nshareable view links (?q=)');
+
+  await test('encode → apply round-trip restores the exact screen', () => {
+    const w = app.window;
+    app.doc.getElementById('f_sector').value = 'Auto';
+    app.doc.getElementById('f_pe').value = '25';
+    app.doc.getElementById('f_q').value = 'motors';
+    w.readScreenerInputs();
+    const url = w.shareUrl();
+    assert.ok(url.indexOf('?q=') > 0, 'shareable URL: ' + url);
+    const payload = url.split('?q=')[1];
+    w.resetScreenerInputs(); w.renderScreener();
+    assert.strictEqual(w.S.scr.sector, 'ALL', 'wiped');
+    assert.ok(w.applyShareState(payload), 'payload applies');
+    assert.strictEqual(w.S.scr.sector, 'Auto');
+    assert.strictEqual(w.S.scr.peMax, 25);
+    assert.strictEqual(w.S.scr.q, 'motors');
+    assert.strictEqual(app.doc.getElementById('f_sector').value, 'Auto', 'select follows state');
+    assert.strictEqual(app.doc.getElementById('f_pe').value, '25');
+    assert.strictEqual(app.doc.getElementById('f_q').value, 'motors');
+    w.renderScreener();
+    const pv = app.doc.getElementById('queryPreview').textContent;
+    assert.ok(/Sector = "Auto"/.test(pv) && /P\/E < 25/.test(pv), 'preview shows the shared query: ' + pv);
+    w.resetScreenerInputs(); w.renderScreener();   // leave the shared app clean
+  });
+
+  await test('opening with ?q= boots already filtered', async () => {
+    const payload = Buffer.from(JSON.stringify({
+      sector: 'Financial Services', peMax: 30, sort: 'roe', dir: 1, mcapMin: 5000
+    })).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    const b = await boot({ query: 'q=' + payload });
+    const real = b.errors.filter((e) => !/offline \(test\)|Not implemented|Could not load/i.test(e));
+    assert.strictEqual(real.length, 0, 'boot errors: ' + JSON.stringify(real.slice(0, 3)));
+    assert.strictEqual(b.window.S.scr.sector, 'Financial Services');
+    assert.strictEqual(b.window.S.scr.peMax, 30);
+    assert.strictEqual(b.window.S.scr.sort, 'roe');
+    assert.strictEqual(b.window.S.scr.mcapMin, 5000);
+    assert.strictEqual(b.doc.getElementById('f_sector').value, 'Financial Services');
+    assert.strictEqual(b.doc.getElementById('f_pe').value, '30');
+    assert.strictEqual(b.doc.getElementById('f_mcap').value, '5000');
+  });
+
+  await test('garbage and hostile ?q= payloads cannot break the boot', async () => {
+    const b1 = await boot({ query: 'q=!!!not-base64!!!' });
+    const r1 = b1.errors.filter((e) => !/offline \(test\)|Not implemented|Could not load/i.test(e));
+    assert.strictEqual(r1.length, 0, 'garbage payload boots clean');
+    assert.strictEqual(b1.window.S.scr.sector, 'ALL', 'defaults kept');
+
+    const hostile = Buffer.from(JSON.stringify({
+      q: '<img src=x onerror=alert(1)>', sector: '<script>', mcapMin: 'drop table'
+    })).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    const b2 = await boot({ query: 'q=' + hostile });
+    const r2 = b2.errors.filter((e) => !/offline \(test\)|Not implemented|Could not load/i.test(e));
+    assert.strictEqual(r2.length, 0, 'hostile payload boots clean');
+    assert.strictEqual(b2.window.S.scr.sector, 'ALL', 'bogus sector rejected');
+    assert.strictEqual(b2.window.S.scr.mcapMin, 0, 'non-numeric mcap rejected');
+    const f = b2.doc.getElementById('f_q');
+    assert.strictEqual(f.value, '<img src=x onerror=alert(1)>', 'text lands in the input value only');
+    assert.strictEqual(b2.doc.querySelectorAll('#screenSec img').length, 0, 'no element created from the payload');
+    assert.strictEqual(b2.doc.querySelectorAll('#screenSec script').length, 0, 'no script injected');
   });
 
   console.log(failures ? '\n' + failures + ' test(s) failed\n' : '\nAll tests passed\n');

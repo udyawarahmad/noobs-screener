@@ -1,10 +1,13 @@
 # Noobs Screener — Deep Analysis, Bug Report & Roadmap
 
-> **UPDATE (2026-11-28, same day):** bugs **B1–B14 (P0 + P1) are fixed** on this
-> branch, each with a regression test — the suite now runs **96 checks across 7
-> suites** and `npm audit` is clean (0 vulnerabilities). The P2 items
-> (B15–B20: backtest maths consistency, NaN chart guards, dead code, service
-> worker, CI-on-main, polish) remain open and are listed in §4/§5.
+> **UPDATE (2026-11-28, same day):** bugs **B1–B20 are all fixed** — P0 + P1
+> (B1–B14) first, then P2 (B15–B20: curve-consistent backtest maths, NaN chart
+> guards, dead code removed, real `sw.js` offline shell, CI on main + PRs,
+> debounce/rAF/Enter polish), each with a regression test. The suite now runs
+> **108 checks across 8 suites**, `npm audit` is clean (0 vulnerabilities), and
+> the roadmap's headline feature — **shareable screen links (`?q=`)** — has
+> shipped as part of **v3.0.0**. What's left is §5's forward roadmap
+> (NSE-500 via official CSVs, ⌘K palette, compare mode, IndexedDB, ESLint…).
 
 > Audited 2026-11-28 on branch `arena/75f05bca-noobs-screener` (base `2c41783`).
 > Method: full source review of every file (~5,100 lines), the whole test suite run

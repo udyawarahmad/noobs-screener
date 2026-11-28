@@ -4,9 +4,11 @@ name: Build Windows EXE
 # Windows runner, then uploads the .exe files to the GitHub Release.
 #
 # - Push a tag (v* or noobsscreener) -> build + upload to that tag's Release.
-# - Push to this branch -> build + upload to the "noobsscreener" Release.
-# - Once this file is on the default branch, you can also run it manually:
-#   Actions tab -> "Build Windows EXE" -> Run workflow.
+# - Push to an arena/** branch -> build only; the .exe stays as an Actions
+#   artifact (the upload step is skipped — see the `if:` on the upload job).
+# - Manual run: Actions tab -> "Build Windows EXE" -> Run workflow; set
+#   release_tag to attach to that Release (default "noobsscreener").
+# PRs and pushes to main run the fast test gate in test.yml instead.
 
 on:
   workflow_dispatch:

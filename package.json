@@ -1,7 +1,7 @@
 {
   "name": "noobs-screener",
   "productName": "Noobs Screener",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "Noobs Screener — one-page Indian stock screener (live prices, financials, ratios, shareholding).",
   "main": "main.js",
   "author": "udyawarahmad",
@@ -51,5 +51,6 @@
     "portable": {
       "artifactName": "Noobs-Screener-Portable-${version}.exe"
     }
-  }
+  },
+  "test": "node test/net.test.js && node test/universe.test.js && node test/live.test.js && node test/persistence.test.js && node test/news.test.js && node test/valuation.test.js && node test/pwa.test.js && node test/renderer.smoke.test.js"
 }
